@@ -1333,7 +1333,9 @@ sealed class Screen(val title: String, val icon: ImageVector, val route: String)
     object ReportsLawsuits : Screen("Relatório de Ajuizados", Icons.Filled.Gavel, "rep_lawsuits")
     object ReportsElevOccurrences : Screen("Ocorrências Elevadores", Icons.Filled.Analytics, "rep_elev_occ")
     object ReportsOvertime : Screen("Relatório de Horas Extras", Icons.Filled.AccessTime, "rep_overtime")
-    object Occurrences : Screen("Ocorrências", Icons.Default.Assignment, "occurrences")
+    object Occurrences : Screen("Ocorrências", Icons.Default.Assignment, "occurrences_parent")
+    object OccurrencesListNav : Screen("Ocorrências", Icons.Default.Assignment, "occurrences_list")
+    object RegisterOccurrenceNav : Screen("Cadastrar Ocorrência", Icons.Default.Add, "register_occurrence_nav")
     object Overtime : Screen("Lançar Horas Extras", Icons.Filled.AccessTime, "overtime")
     object UserManagement : Screen("Gestão de Usuários", Icons.Filled.People, "users_mgmt")
 }
@@ -1424,6 +1426,8 @@ fun MainContent(
             NavigationItem(Screen.UnitsRegistry)
         )),
         NavigationItem(Screen.Occurrences, listOf(
+            NavigationItem(Screen.OccurrencesListNav),
+            NavigationItem(Screen.RegisterOccurrenceNav),
             NavigationItem(Screen.Overtime)
         )),
     )
@@ -1706,13 +1710,23 @@ fun MainContent(
                     is Screen.ReportsElevOccurrences -> if (canAccessMaintenance) ReportsElevatorOccurrencesScreen(dao, context) else PlaceholderScreen(currentScreen)
                     is Screen.ReportsOvertime -> ReportsOvertimeScreen(dao, context)
                     is Screen.Overtime -> OvertimeManagementScreen(dao, currentUser, scope)
-                    is Screen.Occurrences -> OccurrencesScreen(
+                    is Screen.Occurrences, is Screen.OccurrencesListNav -> OccurrencesScreen(
                         dao = dao, 
                         currentUser = currentUser, 
                         scope = scope, 
                         isCompact = isOccurrenceCompactView,
                         selectedMessage = selectedMessage,
-                        onMessageSelected = { selectedMessage = it }
+                        onMessageSelected = { selectedMessage = it },
+                        initialShowAddDialog = false
+                    )
+                    is Screen.RegisterOccurrenceNav -> OccurrencesScreen(
+                        dao = dao, 
+                        currentUser = currentUser, 
+                        scope = scope, 
+                        isCompact = isOccurrenceCompactView,
+                        selectedMessage = selectedMessage,
+                        onMessageSelected = { selectedMessage = it },
+                        initialShowAddDialog = true
                     )
                     else -> PlaceholderScreen(currentScreen)
                 }
@@ -1788,7 +1802,8 @@ fun OccurrencesScreen(
     scope: CoroutineScope, 
     isCompact: Boolean = true,
     selectedMessage: OccurrenceMessageEntity? = null,
-    onMessageSelected: (OccurrenceMessageEntity?) -> Unit = {}
+    onMessageSelected: (OccurrenceMessageEntity?) -> Unit = {},
+    initialShowAddDialog: Boolean = false
 ) {
     val context = LocalContext.current
     val occurrences by dao.getAllOccurrences().collectAsState(initial = emptyList())
@@ -1804,7 +1819,7 @@ fun OccurrencesScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = if (canSeeConselho) listOf("Zelador", "Conselho") else listOf("Zelador")
     
-    var showAddDialog by remember { mutableStateOf(false) }
+    var showAddDialog by remember { mutableStateOf(initialShowAddDialog) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchVisible by remember { mutableStateOf(false) }
 
@@ -11076,17 +11091,24 @@ fun ContractsScreen(dao: AppDao, scope: CoroutineScope, currentUser: UserEntity)
                                 Column {
                                     Text("Adicionado em: ${contract.date}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                                     Text("Por: ${contract.authorUsername}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                                    if (isSyndicOrAdmin) {
-                                        Text("Toque para editar | Pressione para excluir", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
-                                    }
                                 }
-                                Button(
-                                    onClick = { downloadContractFile(context, contract.filePath, contract.fileName) },
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Icon(Icons.Default.Download, null, Modifier.size(18.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Baixar")
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    if (isSyndicOrAdmin) {
+                                        IconButton(
+                                            onClick = { contractToDelete = contract },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(Icons.Default.Delete, "Excluir Contrato", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                                        }
+                                    }
+                                    Button(
+                                        onClick = { downloadContractFile(context, contract.filePath, contract.fileName) },
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Download, null, Modifier.size(18.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Baixar")
+                                    }
                                 }
                             }
                         }
@@ -11182,6 +11204,7 @@ fun ContractsScreen(dao: AppDao, scope: CoroutineScope, currentUser: UserEntity)
                                     e.printStackTrace()
                                 }
                                 dao.deleteContract(currentToDelete.id)
+                                FirestoreSyncManager.syncContract(currentToDelete, isDelete = true)
                             }
                         }
                         contractToDelete = null
