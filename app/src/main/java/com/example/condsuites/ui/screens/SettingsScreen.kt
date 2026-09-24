@@ -1,7 +1,6 @@
 package com.example.condsuites.ui.screens
 
 import android.content.Context
-import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,6 +24,7 @@ import com.example.condsuites.data.model.OccurrenceTypeEntity
 import com.example.condsuites.data.model.ProcessStatusEntity
 import com.example.condsuites.data.model.ServiceDescriptionEntity
 import com.example.condsuites.data.model.UserEntity
+import com.example.condsuites.service.FirestoreSyncManager
 import com.example.condsuites.utils.ExcelHelper
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -41,6 +41,7 @@ fun SettingsScreen(
     scope: CoroutineScope
 ) {
     val context = LocalContext.current
+    val isAdminOrSindico = currentUser.role == "ADMIN" || currentUser.role == "Síndico" || currentUser.username.equals("admin", ignoreCase = true)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -48,6 +49,12 @@ fun SettingsScreen(
     ) {
         item {
             Text("Configurações do Sistema", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        }
+
+        if (isAdminOrSindico) {
+            item {
+                ManageUsersSection(dao = dao, scope = scope)
+            }
         }
 
         item {
@@ -388,5 +395,123 @@ fun ManageOccurrenceTypesSection(dao: AppDao, scope: CoroutineScope) {
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ManageUsersSection(dao: AppDao, scope: CoroutineScope) {
+    val users by dao.getAllUsersFlow().collectAsState(initial = emptyList())
+    val context = LocalContext.current
+    var showAddDialog by remember { mutableStateOf(false) }
+    var editingUser by remember { mutableStateOf<UserEntity?>(null) }
+    var userToDelete by remember { mutableStateOf<UserEntity?>(null) }
+    val roles = listOf("ADMIN", "Síndico", "Conselheiro Fiscal", "Zelador", "Porteiro")
+
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Gerenciar Usuários (${users.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                IconButton(onClick = { showAddDialog = true }) {
+                    Icon(Icons.Default.PersonAdd, "Novo Usuário", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+
+            users.forEach { u ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(u.username, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        Text(u.role, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    }
+                    Row {
+                        IconButton(onClick = { editingUser = u }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Edit, "Editar", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        }
+                        if (!u.username.equals("admin", ignoreCase = true)) {
+                            IconButton(onClick = { userToDelete = u }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Delete, "Excluir", tint = Color.Red, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        UserEditDialog(
+            user = null,
+            roles = roles,
+            onDismiss = { showAddDialog = false },
+            onConfirm = { username, password, role ->
+                if (users.any { it.username.equals(username, ignoreCase = true) }) {
+                    Toast.makeText(context, "Usuário \"$username\" já cadastrado!", Toast.LENGTH_SHORT).show()
+                } else {
+                    scope.launch(Dispatchers.IO) {
+                        val newUser = UserEntity(username = username, password = password, role = role)
+                        dao.insertUser(newUser)
+                        FirestoreSyncManager.syncUser(newUser)
+                    }
+                    showAddDialog = false
+                    Toast.makeText(context, "Usuário cadastrado com sucesso!", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    if (editingUser != null) {
+        UserEditDialog(
+            user = editingUser,
+            roles = roles,
+            onDismiss = { editingUser = null },
+            onConfirm = { username, password, role ->
+                scope.launch(Dispatchers.IO) {
+                    val updated = editingUser!!.copy(
+                        username = username,
+                        password = if (password.isNotBlank()) password else editingUser!!.password,
+                        role = role
+                    )
+                    dao.insertUser(updated)
+                    FirestoreSyncManager.syncUser(updated)
+                }
+                editingUser = null
+                Toast.makeText(context, "Usuário atualizado!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    if (userToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { userToDelete = null },
+            title = { Text("Excluir Usuário") },
+            text = { Text("Deseja realmente excluir o usuário \"${userToDelete?.username}\"?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val u = userToDelete!!
+                        scope.launch(Dispatchers.IO) {
+                            dao.deleteUser(u.id)
+                            FirestoreSyncManager.syncUser(u, isDelete = true)
+                        }
+                        userToDelete = null
+                        Toast.makeText(context, "Usuário excluído.", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Excluir")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { userToDelete = null }) { Text("Cancelar") }
+            }
+        )
     }
 }
