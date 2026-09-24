@@ -10,7 +10,7 @@ import com.google.firebase.firestore.PropertyName
 
 @Entity(tableName = "occurrences")
 data class OccurrenceEntity(
-    @PrimaryKey(autoGenerate = true) @get:PropertyName("id") @set:PropertyName("id") var id: Long = 0,
+    @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: Long = System.currentTimeMillis(),
     @get:PropertyName("title") @set:PropertyName("title") var title: String = "",
     @get:PropertyName("apartment") @set:PropertyName("apartment") var apartment: String = "",
     @get:PropertyName("status") @set:PropertyName("status") var status: String = "ABERTA",
@@ -34,7 +34,7 @@ data class OccurrenceEntity(
     indices = [Index("occurrenceId")]
 )
 data class OccurrenceMessageEntity(
-    @PrimaryKey(autoGenerate = true) @get:PropertyName("id") @set:PropertyName("id") var id: Long = 0,
+    @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: Long = System.currentTimeMillis(),
     @get:PropertyName("occurrenceId") @set:PropertyName("occurrenceId") var occurrenceId: Long = 0,
     @get:PropertyName("senderUsername") @set:PropertyName("senderUsername") var senderUsername: String = "",
     @get:PropertyName("text") @set:PropertyName("text") var text: String = "",
@@ -59,7 +59,7 @@ data class OccurrenceMessageEntity(
     indices = [Index("messageId")]
 )
 data class OccurrenceAttachmentEntity(
-    @PrimaryKey(autoGenerate = true) @get:PropertyName("id") @set:PropertyName("id") var id: Long = 0,
+    @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: Long = System.currentTimeMillis(),
     @get:PropertyName("messageId") @set:PropertyName("messageId") var messageId: Long = 0,
     @get:PropertyName("occurrenceId") @set:PropertyName("occurrenceId") var occurrenceId: Long = 0,
     @get:PropertyName("fileName") @set:PropertyName("fileName") var fileName: String = "",
@@ -79,7 +79,7 @@ data class OccurrenceAttachmentEntity(
     indices = [Index("attachmentId")]
 )
 data class OccurrenceAttachmentVoteEntity(
-    @PrimaryKey(autoGenerate = true) @get:PropertyName("id") @set:PropertyName("id") var id: Long = 0,
+    @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: Long = System.currentTimeMillis(),
     @get:PropertyName("attachmentId") @set:PropertyName("attachmentId") var attachmentId: Long = 0,
     @get:PropertyName("username") @set:PropertyName("username") var username: String = ""
 )

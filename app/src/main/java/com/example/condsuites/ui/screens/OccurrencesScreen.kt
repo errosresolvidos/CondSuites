@@ -37,6 +37,7 @@ import com.example.condsuites.service.NotificationUtils.cancelAppNotification
 import com.example.condsuites.service.NotificationUtils.sendFcmPushNotification
 import com.example.condsuites.ui.components.BudgetReplyDialog
 import com.example.condsuites.ui.components.ChatBubble
+import com.example.condsuites.ui.components.ConfirmDeleteOccurrenceDialog
 import com.example.condsuites.ui.components.ProfessionalBudgetActionButton
 import com.example.condsuites.utils.CurrencyVisualTransformation
 import com.example.condsuites.utils.formatCurrency
@@ -81,6 +82,7 @@ fun OccurrencesScreen(
 
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var occToDelete by remember { mutableStateOf<OccurrenceEntity?>(null) }
 
     val filteredOccurrences = occurrences.filter {
         val isArchived = it.occurrence.status == "ARQUIVADA"
@@ -181,24 +183,19 @@ fun OccurrencesScreen(
                                 currentUser = currentUser,
                                 isCompact = isCompact,
                                 isSelected = isSelected,
-                                modifier = Modifier.combinedClickable(
-                                    onClick = {
-                                        if (selectedIds.isNotEmpty() && currentUser.role == "ADMIN") {
-                                            selectedIds = if (isSelected) selectedIds - occWithMsgs.occurrence.id else selectedIds + occWithMsgs.occurrence.id
-                                        }
-                                    },
-                                    onLongClick = {
-                                        if (currentUser.role == "ADMIN") {
-                                            selectedIds = if (isSelected) selectedIds - occWithMsgs.occurrence.id else selectedIds + occWithMsgs.occurrence.id
-                                        }
+                                onLongClickCard = {
+                                    if (currentUser.role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true)) {
+                                        occToDelete = occWithMsgs.occurrence
                                     }
-                                ),
+                                },
                                 selectedMessage = selectedMessage,
                                 onMessageSelected = onMessageSelected,
                                 onReply = { text, isCouncilOnly, isSindicoOnly, uris, isBudget ->
                                     scope.launch {
+                                        val msgId = System.currentTimeMillis()
                                         val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
                                         val msg = OccurrenceMessageEntity(
+                                            id = msgId,
                                             occurrenceId = occWithMsgs.occurrence.id,
                                             senderUsername = currentUser.username,
                                             text = text,
@@ -207,11 +204,28 @@ fun OccurrencesScreen(
                                             isSindicoOnly = isSindicoOnly,
                                             isBudget = isBudget
                                         )
-                                        val messageId = dao.insertOccurrenceMessage(msg)
-                                        FirestoreSyncManager.syncOccurrenceMessage(msg.copy(id = messageId))
+                                        dao.insertOccurrenceMessageReplace(msg)
+                                        FirestoreSyncManager.syncOccurrenceMessage(msg)
+                                        FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
 
-                                        uris.forEach { uri ->
-                                            uploadImageToCloudinary(context, uri) { path -> if (path != null) { scope.launch { val att = OccurrenceAttachmentEntity(messageId = messageId, occurrenceId = occWithMsgs.occurrence.id, fileName = getFileName(context, uri), filePath = path); val attId = dao.insertAttachmentReplace(att); FirestoreSyncManager.syncAttachment(att.copy(id = attId)) } } }
+                                        uris.forEachIndexed { index, uri ->
+                                            uploadImageToCloudinary(context, uri) { path ->
+                                                if (path != null) {
+                                                    scope.launch {
+                                                        val attId = System.currentTimeMillis() + index + 1
+                                                        val att = OccurrenceAttachmentEntity(
+                                                            id = attId,
+                                                            messageId = msgId,
+                                                            occurrenceId = occWithMsgs.occurrence.id,
+                                                            fileName = getFileName(context, uri),
+                                                            filePath = path
+                                                        )
+                                                        dao.insertAttachmentReplace(att)
+                                                        FirestoreSyncManager.syncAttachment(att)
+                                                        FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
+                                                    }
+                                                }
+                                            }
                                         }
 
                                         val action = when {
@@ -288,7 +302,9 @@ fun OccurrencesScreen(
                                                 if (!start.isNullOrBlank()) append("📅 Início: $start\n")
                                                 if (!dur.isNullOrBlank()) append("⏱️ Duração: $dur")
                                             }.toString()
+                                            val sysMsgId = System.currentTimeMillis()
                                             val msg = OccurrenceMessageEntity(
+                                                id = sysMsgId,
                                                 occurrenceId = occWithMsgs.occurrence.id,
                                                 senderUsername = "SISTEMA",
                                                 text = resultText,
@@ -296,8 +312,9 @@ fun OccurrencesScreen(
                                                 isCouncilOnly = false,
                                                 isSindicoOnly = false
                                             )
-                                            val sysMsgId = dao.insertOccurrenceMessage(msg)
-                                            FirestoreSyncManager.syncOccurrenceMessage(msg.copy(id = sysMsgId))
+                                            dao.insertOccurrenceMessageReplace(msg)
+                                            FirestoreSyncManager.syncOccurrenceMessage(msg)
+                                            FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
                                             sendFcmPushNotification(
                                                 dao = dao,
                                                 title = "Votação Encerrada na Ocorrência",
@@ -361,6 +378,17 @@ fun OccurrencesScreen(
             }
         }
 
+        if (occToDelete != null) {
+            ConfirmDeleteOccurrenceDialog(
+                occurrence = occToDelete!!,
+                dao = dao,
+                currentUser = currentUser,
+                context = context,
+                scope = scope,
+                onDismiss = { occToDelete = null }
+            )
+        }
+
         if (showDeleteConfirm) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirm = false },
@@ -395,21 +423,52 @@ fun OccurrencesScreen(
                 onDismiss = { showAddDialog = false }, 
                 onConfirm = { title, desc, apt, urgent, uris, type -> 
                     scope.launch(Dispatchers.IO) { 
-                        val newOcc = OccurrenceEntity(title = title, apartment = apt, status = "ABERTA", createdByUsername = currentUser.username, date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()), type = type, isUrgent = urgent)
-                        val id = dao.insertOccurrence(newOcc)
-                        val savedOcc = newOcc.copy(id = id)
-                        sendFcmPushNotification(dao = dao, title = "Nova Ocorrência: $title", body = "Unidade $apt: $desc", senderUsername = currentUser.username, occurrenceId = id)
-                        FirestoreSyncManager.syncOccurrence(savedOcc)
-                        val firstMsg = OccurrenceMessageEntity(occurrenceId = id, senderUsername = currentUser.username, text = desc, date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()))
-                        val messageId = dao.insertOccurrenceMessage(firstMsg)
-                        FirestoreSyncManager.syncOccurrenceMessage(firstMsg.copy(id = messageId))
-                        uris.forEach { uri -> 
+                        val occId = System.currentTimeMillis()
+                        val msgId = occId + 1
+                        val newOcc = OccurrenceEntity(
+                            id = occId,
+                            title = title,
+                            apartment = apt,
+                            status = "ABERTA",
+                            createdByUsername = currentUser.username,
+                            date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()),
+                            type = type,
+                            isUrgent = urgent
+                        )
+                        dao.insertOccurrenceReplace(newOcc)
+                        sendFcmPushNotification(
+                            dao = dao,
+                            title = "Nova Ocorrência: $title",
+                            body = "Unidade $apt: $desc",
+                            senderUsername = currentUser.username,
+                            occurrenceId = occId
+                        )
+                        FirestoreSyncManager.syncOccurrence(newOcc)
+
+                        val firstMsg = OccurrenceMessageEntity(
+                            id = msgId,
+                            occurrenceId = occId,
+                            senderUsername = currentUser.username,
+                            text = desc,
+                            date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
+                        )
+                        dao.insertOccurrenceMessageReplace(firstMsg)
+                        FirestoreSyncManager.syncOccurrenceMessage(firstMsg)
+
+                        uris.forEachIndexed { index, uri -> 
                             uploadImageToCloudinary(context, uri) { path -> 
                                 if (path != null) { 
                                     scope.launch(Dispatchers.IO) { 
-                                        val att = OccurrenceAttachmentEntity(occurrenceId = id, messageId = messageId, fileName = getFileName(context, uri), filePath = path)
-                                        val attId = dao.insertAttachmentReplace(att)
-                                        FirestoreSyncManager.syncAttachment(att.copy(id = attId)) 
+                                        val attId = occId + 2 + index
+                                        val att = OccurrenceAttachmentEntity(
+                                            id = attId,
+                                            occurrenceId = occId,
+                                            messageId = msgId,
+                                            fileName = getFileName(context, uri),
+                                            filePath = path
+                                        )
+                                        dao.insertAttachmentReplace(att)
+                                        FirestoreSyncManager.syncAttachment(att) 
                                     } 
                                 } 
                             } 
@@ -430,6 +489,7 @@ fun OccurrenceCard(
     isCompact: Boolean = true,
     isSelected: Boolean = false,
     modifier: Modifier = Modifier,
+    onLongClickCard: () -> Unit = {},
     selectedMessage: OccurrenceMessageEntity? = null,
     onMessageSelected: (OccurrenceMessageEntity?) -> Unit = {},
     onReply: (String, Boolean, Boolean, List<Uri>, Boolean) -> Unit,
@@ -462,7 +522,10 @@ fun OccurrenceCard(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp)
-            .clickable { expanded = !expanded },
+            .combinedClickable(
+                onClick = { expanded = !expanded },
+                onLongClick = { onLongClickCard() }
+            ),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(

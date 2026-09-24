@@ -25,7 +25,6 @@ import com.example.condsuites.data.model.AgreementWithInstallments
 import com.example.condsuites.data.model.LawsuitEntity
 import com.example.condsuites.data.model.LawsuitProgressEntity
 import com.example.condsuites.data.model.LawsuitWithProgress
-import com.example.condsuites.service.FirestoreSyncManager
 import com.example.condsuites.ui.screens.reports.shareLawsuitReport
 import com.example.condsuites.utils.CurrencyVisualTransformation
 import com.example.condsuites.utils.ProcessNumberVisualTransformation
@@ -97,11 +96,8 @@ fun LawsuitsManagementScreen(lawsuits: List<LawsuitWithProgress>, agreements: Li
                         else {
                             scope.launch {
                                 dao.deleteLawsuit(item.lawsuit.id)
-                                FirestoreSyncManager.syncLawsuit(item.lawsuit, isDelete = true)
                                 agreements.find { it.agreement.apartment == item.lawsuit.apartment }?.let {
-                                    val updated = it.agreement.copy(isLawsuit = false)
-                                    dao.updateAgreement(updated)
-                                    FirestoreSyncManager.syncAgreement(updated)
+                                    dao.updateAgreement(it.agreement.copy(isLawsuit = false))
                                 }
                             }
                         }
@@ -158,11 +154,8 @@ fun LawsuitsManagementScreen(lawsuits: List<LawsuitWithProgress>, agreements: Li
             PasswordUndoDialog({ lawsuitForDelete = null }, { 
                 scope.launch { 
                     dao.deleteLawsuit(lawsuitToCapture.id)
-                    FirestoreSyncManager.syncLawsuit(lawsuitToCapture, isDelete = true)
                     agreements.find { it.agreement.apartment == lawsuitToCapture.apartment }?.let {
-                        val updated = it.agreement.copy(isLawsuit = false)
-                        dao.updateAgreement(updated)
-                        FirestoreSyncManager.syncAgreement(updated)
+                        dao.updateAgreement(it.agreement.copy(isLawsuit = false))
                     }
                 }
                 lawsuitForDelete = null 
