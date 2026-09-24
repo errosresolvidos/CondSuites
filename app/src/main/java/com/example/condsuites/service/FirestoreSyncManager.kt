@@ -12,7 +12,9 @@ import com.example.condsuites.data.model.OccurrenceAttachmentEntity
 import com.example.condsuites.data.model.OccurrenceAttachmentVoteEntity
 import com.example.condsuites.data.model.OccurrenceEntity
 import com.example.condsuites.data.model.OccurrenceMessageEntity
+import com.example.condsuites.data.model.OccurrenceTypeEntity
 import com.example.condsuites.data.model.OvertimeEntity
+import com.example.condsuites.data.model.ServiceDescriptionEntity
 import com.example.condsuites.data.model.ServiceOrderEntity
 import com.example.condsuites.data.model.UnitEntity
 import com.example.condsuites.data.model.UserEntity
@@ -32,8 +34,31 @@ object FirestoreSyncManager {
             null
         }
 
-    suspend fun touchParentOccurrence(dao: AppDao, occurrenceId: Long) {
+    suspend fun ensureParentOccurrenceExists(dao: AppDao, occurrenceId: Long) {
+        if (occurrenceId <= 0L) return
         try {
+            val existing = dao.getOccurrenceEntityById(occurrenceId)
+            if (existing == null) {
+                val db = firestore ?: return
+                val task = db.collection("occurrences").document(occurrenceId.toString()).get()
+                val doc = com.google.android.gms.tasks.Tasks.await(task, 10, TimeUnit.SECONDS)
+                if (doc != null && doc.exists()) {
+                    val fetchedOcc = doc.toObject(OccurrenceEntity::class.java)
+                    if (fetchedOcc != null) {
+                        dao.insertOccurrenceReplace(fetchedOcc)
+                        android.util.Log.d("FIRESTORE_SYNC", "Auto-fetched missing parent occurrence: $occurrenceId")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FIRESTORE_SYNC", "Error ensuring parent occurrence $occurrenceId: ${e.message}")
+        }
+    }
+
+    suspend fun touchParentOccurrence(dao: AppDao, occurrenceId: Long) {
+        if (occurrenceId <= 0L) return
+        try {
+            ensureParentOccurrenceExists(dao, occurrenceId)
             val occ = dao.getOccurrenceEntityById(occurrenceId)
             if (occ != null) {
                 dao.updateOccurrence(occ)
@@ -255,6 +280,36 @@ object FirestoreSyncManager {
         }
     }
 
+    fun syncServiceDescription(desc: ServiceDescriptionEntity, isDelete: Boolean = false) {
+        try {
+            val db = firestore ?: return
+            val docRef = db.collection("service_descriptions").document(desc.description)
+            val task = if (isDelete) docRef.delete() else docRef.set(desc)
+            task.addOnSuccessListener {
+                android.util.Log.d("FIRESTORE_SYNC", "Successfully synced service description ${desc.description}")
+            }.addOnFailureListener { e ->
+                android.util.Log.e("FIRESTORE_SYNC", "Failed to sync service description ${desc.description}: ${e.message}", e)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FIRESTORE_SYNC", "Error in syncServiceDescription: ${e.message}")
+        }
+    }
+
+    fun syncOccurrenceType(type: OccurrenceTypeEntity, isDelete: Boolean = false) {
+        try {
+            val db = firestore ?: return
+            val docRef = db.collection("occurrence_types").document(type.type)
+            val task = if (isDelete) docRef.delete() else docRef.set(type)
+            task.addOnSuccessListener {
+                android.util.Log.d("FIRESTORE_SYNC", "Successfully synced occurrence type ${type.type}")
+            }.addOnFailureListener { e ->
+                android.util.Log.e("FIRESTORE_SYNC", "Failed to sync occurrence type ${type.type}: ${e.message}", e)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FIRESTORE_SYNC", "Error in syncOccurrenceType: ${e.message}")
+        }
+    }
+
     fun pullAllFromCloud(dao: AppDao, scope: CoroutineScope) {
         val db = firestore ?: return
         scope.launch(Dispatchers.IO) {
@@ -406,6 +461,22 @@ object FirestoreSyncManager {
                     }
                 } catch (_: Exception) {}
 
+                try {
+                    val snap = com.google.android.gms.tasks.Tasks.await(db.collection("service_descriptions").get(), 10, TimeUnit.SECONDS)
+                    for (doc in snap.documents) {
+                        val item = doc.toObject(ServiceDescriptionEntity::class.java)
+                        if (item != null && item.description.isNotBlank()) dao.insertServiceDescription(item)
+                    }
+                } catch (_: Exception) {}
+
+                try {
+                    val snap = com.google.android.gms.tasks.Tasks.await(db.collection("occurrence_types").get(), 10, TimeUnit.SECONDS)
+                    for (doc in snap.documents) {
+                        val item = doc.toObject(OccurrenceTypeEntity::class.java)
+                        if (item != null && item.type.isNotBlank()) dao.insertOccurrenceType(item)
+                    }
+                } catch (_: Exception) {}
+
                 android.util.Log.d("FIRESTORE_SYNC", "Sequential pull from cloud finished successfully.")
             } catch (e: Exception) {
                 android.util.Log.e("FIRESTORE_SYNC", "Error in sequential pull: ${e.message}", e)
@@ -425,23 +496,23 @@ object FirestoreSyncManager {
                     scope.launch(Dispatchers.IO) {
                         try {
                             for (dc in snapshot.documentChanges) {
+                                val occId = dc.document.id.toLongOrNull()
                                 if (dc.type == com.google.firebase.firestore.DocumentChange.Type.REMOVED) {
-                                    val occId = dc.document.id.toLongOrNull()
                                     if (occId != null) {
-                                        dao.deleteOccurrence(occId)
+                                        dao.deleteOccurrenceMessagesByOccurrenceId(occId)
+                                        dao.deleteOccurrenceOnly(occId)
                                     }
-                                }
-                            }
-                            for (doc in snapshot.documents) {
-                                val occ = doc.toObject(OccurrenceEntity::class.java)
-                                if (occ != null) {
-                                    val existing = dao.getOccurrenceEntityById(occ.id)
-                                    if (existing == null) {
-                                        dao.insertOccurrenceReplace(occ)
-                                        android.util.Log.d("FIRESTORE_SYNC", "Pulled new occurrence from cloud: ${occ.id}")
-                                    } else if (existing != occ) {
-                                        dao.updateOccurrence(occ)
-                                        android.util.Log.d("FIRESTORE_SYNC", "Updated occurrence from cloud: ${occ.id}")
+                                } else {
+                                    val occ = dc.document.toObject(OccurrenceEntity::class.java)
+                                    if (occ != null) {
+                                        val existing = dao.getOccurrenceEntityById(occ.id)
+                                        if (existing == null) {
+                                            dao.insertOccurrenceReplace(occ)
+                                            android.util.Log.d("FIRESTORE_SYNC", "Pulled new occurrence from cloud: ${occ.id}")
+                                        } else if (existing != occ) {
+                                            dao.updateOccurrence(occ)
+                                            android.util.Log.d("FIRESTORE_SYNC", "Updated occurrence from cloud: ${occ.id}")
+                                        }
                                     }
                                 }
                             }
@@ -457,8 +528,8 @@ object FirestoreSyncManager {
                     scope.launch(Dispatchers.IO) {
                         try {
                             for (dc in snapshot.documentChanges) {
+                                val msgId = dc.document.id.toLongOrNull()
                                 if (dc.type == com.google.firebase.firestore.DocumentChange.Type.REMOVED) {
-                                    val msgId = dc.document.id.toLongOrNull()
                                     if (msgId != null) {
                                         val msg = dao.getOccurrenceMessageById(msgId)
                                         if (msg != null) {
@@ -466,32 +537,32 @@ object FirestoreSyncManager {
                                             touchParentOccurrence(dao, msg.occurrenceId)
                                         }
                                     }
-                                }
-                            }
-                            for (doc in snapshot.documents) {
-                                val msg = doc.toObject(OccurrenceMessageEntity::class.java)
-                                if (msg != null) {
-                                    val existing = dao.getOccurrenceMessageById(msg.id)
-                                    if (existing == null) {
-                                        dao.insertOccurrenceMessageReplace(msg)
-                                        touchParentOccurrence(dao, msg.occurrenceId)
-                                        if (!isFirstMessagePass.get()) {
-                                            val currentUsername = UserPreferences.getCurrentSessionUser(context)
-                                            if (msg.senderUsername != currentUsername) {
-                                                val occ = dao.getOccurrenceEntityById(msg.occurrenceId)
-                                                val occTitle = occ?.title ?: "Ocorrência"
-                                                NotificationUtils.showAppNotification(
-                                                    context,
-                                                    "Nova mensagem em Ocorrências",
-                                                    "$occTitle - ${msg.senderUsername}: ${msg.text}",
-                                                    msg.occurrenceId.toInt()
-                                                )
+                                } else {
+                                    val msg = dc.document.toObject(OccurrenceMessageEntity::class.java)
+                                    if (msg != null) {
+                                        ensureParentOccurrenceExists(dao, msg.occurrenceId)
+                                        val existing = dao.getOccurrenceMessageById(msg.id)
+                                        if (existing == null) {
+                                            dao.insertOccurrenceMessageReplace(msg)
+                                            touchParentOccurrence(dao, msg.occurrenceId)
+                                            if (!isFirstMessagePass.get()) {
+                                                val currentUsername = UserPreferences.getCurrentSessionUser(context)
+                                                if (msg.senderUsername != currentUsername) {
+                                                    val occ = dao.getOccurrenceEntityById(msg.occurrenceId)
+                                                    val occTitle = occ?.title ?: "Ocorrência"
+                                                    NotificationUtils.showAppNotification(
+                                                        context,
+                                                        "Nova mensagem em Ocorrências",
+                                                        "$occTitle - ${msg.senderUsername}: ${msg.text}",
+                                                        msg.occurrenceId.toInt()
+                                                    )
+                                                }
                                             }
+                                        } else if (existing != msg) {
+                                            val msgToUpdate = if (existing.isRead) msg.copy(isRead = true) else msg
+                                            dao.updateOccurrenceMessage(msgToUpdate)
+                                            touchParentOccurrence(dao, msg.occurrenceId)
                                         }
-                                    } else if (existing != msg) {
-                                        val msgToUpdate = if (existing.isRead) msg.copy(isRead = true) else msg
-                                        dao.updateOccurrenceMessage(msgToUpdate)
-                                        touchParentOccurrence(dao, msg.occurrenceId)
                                     }
                                 }
                             }
@@ -816,6 +887,40 @@ object FirestoreSyncManager {
                             isFirstFinancePass.set(false)
                         } catch (e: Exception) {
                             android.util.Log.e("FIRESTORE_SYNC", "Error processing finance transactions snapshot: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+
+            db.collection("service_descriptions").addSnapshotListener { snapshot, error ->
+                if (error == null && snapshot != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            for (doc in snapshot.documents) {
+                                val item = doc.toObject(ServiceDescriptionEntity::class.java)
+                                if (item != null && item.description.isNotBlank()) {
+                                    dao.insertServiceDescription(item)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("FIRESTORE_SYNC", "Error processing service_descriptions snapshot: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+
+            db.collection("occurrence_types").addSnapshotListener { snapshot, error ->
+                if (error == null && snapshot != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            for (doc in snapshot.documents) {
+                                val item = doc.toObject(OccurrenceTypeEntity::class.java)
+                                if (item != null && item.type.isNotBlank()) {
+                                    dao.insertOccurrenceType(item)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("FIRESTORE_SYNC", "Error processing occurrence_types snapshot: ${e.message}", e)
                         }
                     }
                 }

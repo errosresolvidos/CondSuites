@@ -6,11 +6,13 @@ import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.ContactPage
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Elevator
 import androidx.compose.material.icons.filled.Gavel
@@ -46,7 +48,9 @@ sealed class Screen(val title: String, val icon: ImageVector, val route: String)
     object OccurrencesListNav : Screen("Ocorrências", Icons.Default.Assignment, "occurrences_list")
     object RegisterOccurrenceNav : Screen("Cadastrar Ocorrência", Icons.Default.Add, "register_occurrence_nav")
     object Overtime : Screen("Lançar Horas Extras", Icons.Filled.AccessTime, "overtime")
+    object AdminParent : Screen("Administração", Icons.Filled.AdminPanelSettings, "admin_parent")
     object UserManagement : Screen("Gestão de Usuários", Icons.Filled.People, "users_mgmt")
+    object DeleteOccurrencesAdmin : Screen("Excluir Ocorrências", Icons.Filled.DeleteSweep, "admin_occurrences")
 }
 
 data class NavigationItem(val screen: Screen, val subItems: List<NavigationItem> = emptyList())

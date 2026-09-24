@@ -236,13 +236,14 @@ fun HomeScreen(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope, onNa
             currentUser = currentUser,
             dao = dao,
             onDismiss = { showAddOccurrenceDialog = false },
-            onConfirm = { title, desc, apt, isUrgent, uris, dest ->
+            onConfirm = { title, desc, msgText, apt, isUrgent, uris, dest ->
                 scope.launch(Dispatchers.IO) {
                     val occId = System.currentTimeMillis()
                     val msgId = occId + 1
                     val newOcc = OccurrenceEntity(
                         id = occId,
                         title = title,
+                        description = desc,
                         apartment = apt,
                         status = "ABERTA",
                         createdByUsername = currentUser.username,
@@ -254,21 +255,23 @@ fun HomeScreen(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope, onNa
                     sendFcmPushNotification(
                         dao = dao,
                         title = "Nova Ocorrência: $title",
-                        body = "Unidade $apt: $desc",
+                        body = if (msgText.isNotBlank()) "Unidade $apt: $msgText" else "Unidade $apt: $desc",
                         senderUsername = currentUser.username,
                         occurrenceId = occId
                     )
                     FirestoreSyncManager.syncOccurrence(newOcc)
 
-                    val firstMsg = OccurrenceMessageEntity(
-                        id = msgId,
-                        occurrenceId = occId,
-                        senderUsername = currentUser.username,
-                        text = desc,
-                        date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
-                    )
-                    dao.insertOccurrenceMessageReplace(firstMsg)
-                    FirestoreSyncManager.syncOccurrenceMessage(firstMsg)
+                    if (msgText.isNotBlank()) {
+                        val firstMsg = OccurrenceMessageEntity(
+                            id = msgId,
+                            occurrenceId = occId,
+                            senderUsername = currentUser.username,
+                            text = msgText,
+                            date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
+                        )
+                        dao.insertOccurrenceMessageReplace(firstMsg)
+                        FirestoreSyncManager.syncOccurrenceMessage(firstMsg)
+                    }
 
                     uris.forEachIndexed { index, uri ->
                         uploadImageToCloudinary(context, uri) { path ->
@@ -278,7 +281,7 @@ fun HomeScreen(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope, onNa
                                     val att = OccurrenceAttachmentEntity(
                                         id = attId,
                                         occurrenceId = occId,
-                                        messageId = msgId,
+                                        messageId = if (msgText.isNotBlank()) msgId else 0,
                                         fileName = getFileName(context, uri),
                                         filePath = path
                                     )

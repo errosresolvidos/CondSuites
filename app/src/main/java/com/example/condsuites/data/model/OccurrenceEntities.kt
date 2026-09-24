@@ -2,7 +2,6 @@ package com.example.condsuites.data.model
 
 import androidx.room.Embedded
 import androidx.room.Entity
-import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.Relation
@@ -12,6 +11,7 @@ import com.google.firebase.firestore.PropertyName
 data class OccurrenceEntity(
     @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: Long = System.currentTimeMillis(),
     @get:PropertyName("title") @set:PropertyName("title") var title: String = "",
+    @get:PropertyName("description") @set:PropertyName("description") var description: String = "",
     @get:PropertyName("apartment") @set:PropertyName("apartment") var apartment: String = "",
     @get:PropertyName("status") @set:PropertyName("status") var status: String = "ABERTA",
     @get:PropertyName("createdByUsername") @set:PropertyName("createdByUsername") var createdByUsername: String = "",
@@ -23,14 +23,6 @@ data class OccurrenceEntity(
 
 @Entity(
     tableName = "occurrence_messages",
-    foreignKeys = [
-        ForeignKey(
-            entity = OccurrenceEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["occurrenceId"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
     indices = [Index("occurrenceId")]
 )
 data class OccurrenceMessageEntity(
@@ -48,14 +40,6 @@ data class OccurrenceMessageEntity(
 
 @Entity(
     tableName = "occurrence_attachments",
-    foreignKeys = [
-        ForeignKey(
-            entity = OccurrenceMessageEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["messageId"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
     indices = [Index("messageId")]
 )
 data class OccurrenceAttachmentEntity(
@@ -68,14 +52,6 @@ data class OccurrenceAttachmentEntity(
 
 @Entity(
     tableName = "occurrence_attachment_votes",
-    foreignKeys = [
-        ForeignKey(
-            entity = OccurrenceAttachmentEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["attachmentId"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
     indices = [Index("attachmentId")]
 )
 data class OccurrenceAttachmentVoteEntity(

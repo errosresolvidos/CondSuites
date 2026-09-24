@@ -85,7 +85,12 @@ fun AppMainLayout(
         list.add(NavigationItem(Screen.Reports, reportSubItems))
 
         if (isAdminOrSindico) {
-            list.add(NavigationItem(Screen.UserManagement))
+            list.add(
+                NavigationItem(Screen.AdminParent, listOf(
+                    NavigationItem(Screen.UserManagement),
+                    NavigationItem(Screen.DeleteOccurrencesAdmin)
+                ))
+            )
         }
 
         list.add(NavigationItem(Screen.Notices))
@@ -366,6 +371,7 @@ fun AppMainLayout(
                     Screen.DelinquencyHistory -> DelinquencyHistoryScreen(dao, currentUser)
                     Screen.Finance, Screen.Accounts -> FinanceScreen(dao, currentUser)
                     Screen.UserManagement -> UserManagementScreen(dao, currentUser, scope)
+                    Screen.DeleteOccurrencesAdmin -> AdminOccurrencesScreen(dao, currentUser, scope)
                     Screen.Settings -> SettingsScreen(dao, currentUser, scope)
                     else -> HomeScreen(dao, currentUser, scope, onNavigate = { screen -> currentScreen = screen })
                 }

@@ -240,7 +240,9 @@ fun ManageServiceDescriptionsSection(dao: AppDao, scope: CoroutineScope) {
                         if (newDescText.isNotBlank()) {
                             val d = newDescText.trim()
                             scope.launch(Dispatchers.IO) {
-                                dao.insertServiceDescription(ServiceDescriptionEntity(description = d))
+                                val entity = ServiceDescriptionEntity(description = d)
+                                dao.insertServiceDescription(entity)
+                                FirestoreSyncManager.syncServiceDescription(entity)
                             }
                             newDescText = ""
                         }
@@ -264,6 +266,7 @@ fun ManageServiceDescriptionsSection(dao: AppDao, scope: CoroutineScope) {
                         onClick = {
                             scope.launch(Dispatchers.IO) {
                                 dao.deleteServiceDescription(d.description)
+                                FirestoreSyncManager.syncServiceDescription(ServiceDescriptionEntity(description = d.description), isDelete = true)
                             }
                         },
                         modifier = Modifier.size(28.dp)
@@ -362,7 +365,9 @@ fun ManageOccurrenceTypesSection(dao: AppDao, scope: CoroutineScope) {
                         if (newTypeText.isNotBlank()) {
                             val tp = newTypeText.trim()
                             scope.launch(Dispatchers.IO) {
-                                dao.insertOccurrenceType(OccurrenceTypeEntity(type = tp))
+                                val entity = OccurrenceTypeEntity(type = tp)
+                                dao.insertOccurrenceType(entity)
+                                FirestoreSyncManager.syncOccurrenceType(entity)
                             }
                             newTypeText = ""
                         }
@@ -386,6 +391,7 @@ fun ManageOccurrenceTypesSection(dao: AppDao, scope: CoroutineScope) {
                         onClick = {
                             scope.launch(Dispatchers.IO) {
                                 dao.deleteOccurrenceType(tp.type)
+                                FirestoreSyncManager.syncOccurrenceType(OccurrenceTypeEntity(type = tp.type), isDelete = true)
                             }
                         },
                         modifier = Modifier.size(28.dp)

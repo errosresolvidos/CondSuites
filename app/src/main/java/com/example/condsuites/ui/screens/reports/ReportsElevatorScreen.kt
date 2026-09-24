@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.condsuites.data.dao.AppDao
 import com.example.condsuites.data.model.OccurrenceWithMessages
@@ -682,6 +683,26 @@ fun ElevatorOccurrenceCard(
 
             Spacer(Modifier.height(8.dp))
             Text(item.occurrence.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            if (item.occurrence.description.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "Descrição: ${item.occurrence.description}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            val firstMsgText = item.messages.sortedBy { it.message.id }.firstOrNull()?.message?.text
+            if (!firstMsgText.isNullOrBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = firstMsgText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (isExpanded) Int.MAX_VALUE else 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Spacer(Modifier.height(4.dp))
 
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {

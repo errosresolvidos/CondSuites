@@ -128,7 +128,16 @@ interface AppDao {
     @Query("SELECT * FROM occurrences WHERE id = :id") suspend fun getOccurrenceEntityById(id: Long): OccurrenceEntity?
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertOccurrenceReplace(occurrence: OccurrenceEntity): Long
     @Update suspend fun updateOccurrence(occurrence: OccurrenceEntity)
-    @Query("DELETE FROM occurrences WHERE id = :id") suspend fun deleteOccurrence(id: Long)
+    @Query("DELETE FROM occurrences WHERE id = :id") suspend fun deleteOccurrenceOnly(id: Long)
+    @Query("DELETE FROM occurrence_messages WHERE occurrenceId = :occId") suspend fun deleteOccurrenceMessagesByOccurrenceId(occId: Long)
+    @Query("DELETE FROM occurrence_attachments WHERE occurrenceId = :occId") suspend fun deleteOccurrenceAttachmentsByOccurrenceId(occId: Long)
+
+    @Transaction
+    suspend fun deleteOccurrence(id: Long) {
+        deleteOccurrenceMessagesByOccurrenceId(id)
+        deleteOccurrenceAttachmentsByOccurrenceId(id)
+        deleteOccurrenceOnly(id)
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertOccurrenceMessage(message: OccurrenceMessageEntity): Long
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertOccurrenceMessageReplace(message: OccurrenceMessageEntity): Long

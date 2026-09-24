@@ -421,13 +421,14 @@ fun OccurrencesScreen(
                 currentUser = currentUser, 
                 dao = dao, 
                 onDismiss = { showAddDialog = false }, 
-                onConfirm = { title, desc, apt, urgent, uris, type -> 
+                onConfirm = { title, desc, msgText, apt, urgent, uris, type -> 
                     scope.launch(Dispatchers.IO) { 
                         val occId = System.currentTimeMillis()
                         val msgId = occId + 1
                         val newOcc = OccurrenceEntity(
                             id = occId,
                             title = title,
+                            description = desc,
                             apartment = apt,
                             status = "ABERTA",
                             createdByUsername = currentUser.username,
@@ -439,21 +440,23 @@ fun OccurrencesScreen(
                         sendFcmPushNotification(
                             dao = dao,
                             title = "Nova Ocorrência: $title",
-                            body = "Unidade $apt: $desc",
+                            body = if (msgText.isNotBlank()) "Unidade $apt: $msgText" else "Unidade $apt: $desc",
                             senderUsername = currentUser.username,
                             occurrenceId = occId
                         )
                         FirestoreSyncManager.syncOccurrence(newOcc)
 
-                        val firstMsg = OccurrenceMessageEntity(
-                            id = msgId,
-                            occurrenceId = occId,
-                            senderUsername = currentUser.username,
-                            text = desc,
-                            date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
-                        )
-                        dao.insertOccurrenceMessageReplace(firstMsg)
-                        FirestoreSyncManager.syncOccurrenceMessage(firstMsg)
+                        if (msgText.isNotBlank()) {
+                            val firstMsg = OccurrenceMessageEntity(
+                                id = msgId,
+                                occurrenceId = occId,
+                                senderUsername = currentUser.username,
+                                text = msgText,
+                                date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
+                            )
+                            dao.insertOccurrenceMessageReplace(firstMsg)
+                            FirestoreSyncManager.syncOccurrenceMessage(firstMsg)
+                        }
 
                         uris.forEachIndexed { index, uri -> 
                             uploadImageToCloudinary(context, uri) { path -> 
@@ -463,7 +466,7 @@ fun OccurrencesScreen(
                                         val att = OccurrenceAttachmentEntity(
                                             id = attId,
                                             occurrenceId = occId,
-                                            messageId = msgId,
+                                            messageId = if (msgText.isNotBlank()) msgId else 0,
                                             fileName = getFileName(context, uri),
                                             filePath = path
                                         )
@@ -589,6 +592,28 @@ fun OccurrenceCard(
                 fontWeight = FontWeight.Medium,
                 color = if (occ.title.endsWith("(Desarquivada)")) MaterialTheme.colorScheme.primary else Color.Unspecified
             )
+
+            if (occ.description.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Descrição: ${occ.description}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            val firstMsgText = messages.firstOrNull()?.message?.text
+            if (!firstMsgText.isNullOrBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = firstMsgText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (expanded) Int.MAX_VALUE else 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
             Spacer(Modifier.height(4.dp))
 
@@ -840,10 +865,11 @@ fun RegisterOccurrenceDialog(
     currentUser: UserEntity, 
     dao: AppDao, 
     onDismiss: () -> Unit, 
-    onConfirm: (String, String, String, Boolean, List<Uri>, String) -> Unit
+    onConfirm: (String, String, String, String, Boolean, List<Uri>, String) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var desc by remember { mutableStateOf("") }
+    var messageText by remember { mutableStateOf("") }
     var apt by remember { mutableStateOf("") }
     var isCondo by remember { mutableStateOf(true) }
     var isUrgent by remember { mutableStateOf(false) }
@@ -1221,6 +1247,18 @@ fun RegisterOccurrenceDialog(
                     )
                 }
 
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = messageText,
+                    onValueChange = { messageText = it },
+                    label = { Text("Mensagem") },
+                    placeholder = { Text("Digite uma mensagem para a ocorrência (opcional)") },
+                    leadingIcon = { Icon(Icons.Default.Message, null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
                 if (showAddDescDialog) {
                     AlertDialog(
                         onDismissRequest = { showAddDescDialog = false; newDescText = "" },
@@ -1242,8 +1280,10 @@ fun RegisterOccurrenceDialog(
                                         if (!defaultDescs.contains(trimmed)) {
                                             defaultDescs.add(trimmed)
                                         }
-                                        scope.launch {
-                                            dao.insertServiceDescription(ServiceDescriptionEntity(description = trimmed))
+                                        val descEntity = ServiceDescriptionEntity(description = trimmed)
+                                        scope.launch(Dispatchers.IO) {
+                                            dao.insertServiceDescription(descEntity)
+                                            FirestoreSyncManager.syncServiceDescription(descEntity)
                                         }
                                         desc = trimmed
                                         newDescText = ""
@@ -1283,8 +1323,10 @@ fun RegisterOccurrenceDialog(
                                         if (!subjectsList.contains(trimmed)) {
                                             subjectsList.add(trimmed)
                                         }
-                                        scope.launch {
-                                            dao.insertOccurrenceType(OccurrenceTypeEntity(type = trimmed))
+                                        val typeEntity = OccurrenceTypeEntity(type = trimmed)
+                                        scope.launch(Dispatchers.IO) {
+                                            dao.insertOccurrenceType(typeEntity)
+                                            FirestoreSyncManager.syncOccurrenceType(typeEntity)
                                         }
                                         title = trimmed
                                         newSubjectText = ""
@@ -1313,8 +1355,9 @@ fun RegisterOccurrenceDialog(
                                 onClick = {
                                     val toDelete = subjectToDelete!!
                                     subjectsList.remove(toDelete)
-                                    scope.launch {
+                                    scope.launch(Dispatchers.IO) {
                                         dao.deleteOccurrenceType(toDelete)
+                                        FirestoreSyncManager.syncOccurrenceType(OccurrenceTypeEntity(type = toDelete), isDelete = true)
                                     }
                                     if (title == toDelete) title = ""
                                     subjectToDelete = null
@@ -1342,8 +1385,9 @@ fun RegisterOccurrenceDialog(
                                 onClick = {
                                     val toDelete = descToDelete!!
                                     defaultDescs.remove(toDelete)
-                                    scope.launch {
+                                    scope.launch(Dispatchers.IO) {
                                         dao.deleteServiceDescription(toDelete)
+                                        FirestoreSyncManager.syncServiceDescription(ServiceDescriptionEntity(description = toDelete), isDelete = true)
                                     }
                                     if (desc == toDelete) desc = ""
                                     descToDelete = null
@@ -1440,7 +1484,7 @@ fun RegisterOccurrenceDialog(
 
                                 val finalDesc = desc
 
-                                onConfirm(finalTitle, finalDesc, finalApt, isUrgent, selectedUris.toList(), destination)
+                                onConfirm(finalTitle, finalDesc, messageText.trim(), finalApt, isUrgent, selectedUris.toList(), destination)
                             }
                         },
                         shape = RoundedCornerShape(12.dp),
