@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "1023725738107",
-    "project_id": "condsuites-510b4",
-    "storage_bucket": "condsuites-510b4.firebasestorage.app"
+    "project_number": "501568368261",
+    "project_id": "condsuites-ee6ac",
+    "storage_bucket": "condsuites-ee6ac.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1023725738107:android:3fec00b0c1367a18272ade",
+        "mobilesdk_app_id": "1:501568368261:android:c3d1ee0b106423f64043ec",
         "android_client_info": {
           "package_name": "com.example.condsuites"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyB90pnu8Heol7T83QwBENkIJeenUvPPi3Q"
+          "current_key": "AIzaSyCOM3UEOvVNq-nSKAnQlYs3iX9gUyAkEuY"
         }
       ],
       "services": {
