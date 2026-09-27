@@ -533,7 +533,7 @@ fun BudgetVotingCard(
                         }
                     }
                 } else {
-                    val canCloseVoting = currentUser.role == "Síndico" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "ADMIN"
+                    val canCloseVoting = isFromMe || currentUser.username.equals(author, ignoreCase = true)
                     if (canCloseVoting) {
                         Button(
                             onClick = onShowCloseVotingDialog,

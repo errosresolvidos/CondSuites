@@ -314,6 +314,12 @@ fun OccurrencesScreen(
                                 },
                                 onCloseVoting = { msgId, name, total, count, instValue, start, dur ->
                                     scope.launch {
+                                        val targetMsg = dao.getOccurrenceMessageById(msgId)
+                                        if (targetMsg != null) {
+                                            val isSender = targetMsg.senderUsername.equals(currentUser.username, ignoreCase = true) ||
+                                                    (targetMsg.senderUsername == "admin" && currentUser.role == "ADMIN")
+                                            if (!isSender) return@launch
+                                        }
                                         dao.closeOccurrenceVoting(msgId)
                                         val closedMsg = dao.getOccurrenceMessageById(msgId)
                                         if (closedMsg != null) {
