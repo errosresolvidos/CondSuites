@@ -64,6 +64,7 @@ fun OccurrencesScreen(
 ) {
     val context = LocalContext.current
     val occurrences by dao.getAllOccurrences().collectAsState(initial = emptyList())
+    val sortedOccList = remember(occurrences) { occurrences.sortedBy { it.occurrence.id } }
 
     LaunchedEffect(Unit) {
         scope.launch(Dispatchers.IO) {
@@ -178,8 +179,11 @@ fun OccurrencesScreen(
                     ) {
                         items(filteredOccurrences) { occWithMsgs ->
                             val isSelected = selectedIds.contains(occWithMsgs.occurrence.id)
+                            val occIndex = sortedOccList.indexOfFirst { it.occurrence.id == occWithMsgs.occurrence.id }
+                            val occNumber = if (occIndex >= 0) (occIndex + 1).toLong() else occWithMsgs.occurrence.id
                             OccurrenceCard(
                                 occWithMsgs = occWithMsgs,
+                                occNumber = occNumber,
                                 currentUser = currentUser,
                                 isCompact = isCompact,
                                 isSelected = isSelected,
@@ -357,6 +361,43 @@ fun OccurrencesScreen(
                                         dao.deleteOccurrence(occWithMsgs.occurrence.id)
                                         FirestoreSyncManager.syncOccurrence(occWithMsgs.occurrence, isDelete = true)
                                     }
+                                },
+                                onEditOccurrence = { newApartment, newTitle, newDescription ->
+                                    scope.launch(Dispatchers.IO) {
+                                        val updatedOcc = occWithMsgs.occurrence.copy(
+                                            apartment = newApartment,
+                                            title = newTitle
+                                        )
+                                        dao.updateOccurrence(updatedOcc)
+                                        FirestoreSyncManager.syncOccurrence(updatedOcc)
+
+                                        val firstMsg = occWithMsgs.messages.sortedBy { it.message.id }.firstOrNull()?.message
+                                        if (firstMsg != null) {
+                                            val updatedMsg = firstMsg.copy(text = newDescription)
+                                            dao.insertOccurrenceMessageReplace(updatedMsg)
+                                            FirestoreSyncManager.syncOccurrenceMessage(updatedMsg)
+                                            FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
+                                        } else {
+                                            val newMsg = OccurrenceMessageEntity(
+                                                id = System.currentTimeMillis(),
+                                                occurrenceId = occWithMsgs.occurrence.id,
+                                                senderUsername = currentUser.username,
+                                                text = newDescription,
+                                                date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
+                                            )
+                                            dao.insertOccurrenceMessageReplace(newMsg)
+                                            FirestoreSyncManager.syncOccurrenceMessage(newMsg)
+                                            FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
+                                        }
+
+                                        dao.insertOccurrenceLog(
+                                            OccurrenceLogEntity(
+                                                occurrenceId = occWithMsgs.occurrence.id,
+                                                username = currentUser.username,
+                                                action = "EDITOU_OCORRENCIA"
+                                            )
+                                        )
+                                    }
                                 }
                             )
                         }
@@ -519,6 +560,7 @@ fun OccurrencesScreen(
 @Composable
 fun OccurrenceCard(
     occWithMsgs: OccurrenceWithMessages,
+    occNumber: Any = occWithMsgs.occurrence.id,
     currentUser: UserEntity,
     isCompact: Boolean = true,
     isSelected: Boolean = false,
@@ -532,10 +574,12 @@ fun OccurrenceCard(
     onDeleteMessage: (Long) -> Unit,
     onToggleVote: (Long, Boolean) -> Unit,
     onCloseVoting: (Long, String?, Double?, Int?, Double?, String?, String?) -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onEditOccurrence: ((newApartment: String, newTitle: String, newDescription: String) -> Unit)? = null
 ) {
     var showReplyDialog by remember { mutableStateOf(false) }
     var showBudgetDialog by remember { mutableStateOf(false) }
+    var showEditHeaderDialog by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(isCompact) {
@@ -550,6 +594,20 @@ fun OccurrenceCard(
         if (expanded) {
             onMarkAsRead()
         }
+    }
+
+    if (showEditHeaderDialog && onEditOccurrence != null) {
+        val firstMsgText = messages.firstOrNull()?.message?.text ?: ""
+        EditOccurrenceDialog(
+            occurrence = occ,
+            occNumber = occNumber,
+            firstMessageText = firstMsgText,
+            onDismiss = { showEditHeaderDialog = false },
+            onConfirm = { newApt, newTitle, newDesc ->
+                onEditOccurrence(newApt, newTitle, newDesc)
+                showEditHeaderDialog = false
+            }
+        )
     }
 
     Card(
@@ -571,60 +629,121 @@ fun OccurrenceCard(
         )
     ) {
         Column(Modifier.padding(16.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (occ.isUrgent) {
-                        Icon(Icons.Default.NotificationImportant, contentDescription = "Urgente", tint = Color.Red, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                    }
-                    if (occ.type == "CONSELHO") {
-                        Icon(Icons.Default.Gavel, contentDescription = "Conselho", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                    }
-                    Text(
-                        text = if (isCondo) "🏢 CONDOMÍNIO" else "Unidade: ${occ.apartment}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isCondo) MaterialTheme.colorScheme.primary else Color.Black
-                    )
-                }
-
-                Surface(
-                    color = when (occ.status) {
-                        "ABERTA" -> Color(0xFFE3F2FD)
-                        "EM_ESPERA" -> Color(0xFFFFF3E0)
-                        "FINALIZADA" -> Color(0xFFE8F5E9)
-                        "ARQUIVADA" -> Color(0xFFECEFF1)
-                        else -> Color.LightGray
-                    },
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = occ.status,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = when (occ.status) {
-                            "ABERTA" -> Color(0xFF1976D2)
-                            "EM_ESPERA" -> Color(0xFFF57C00)
-                            "FINALIZADA" -> Color(0xFF388E3C)
-                            "ARQUIVADA" -> Color(0xFF546E7A)
-                            else -> Color.DarkGray
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        if (onEditOccurrence != null) {
+                            showEditHeaderDialog = true
                         }
-                    )
+                    }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary,
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "Nº $occNumber",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+
+                            if (occ.isUrgent) {
+                                Icon(Icons.Default.NotificationImportant, contentDescription = "Urgente", tint = Color.Red, modifier = Modifier.size(16.dp))
+                            }
+                            if (occ.type == "CONSELHO") {
+                                Icon(Icons.Default.Gavel, contentDescription = "Conselho", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            }
+                        }
+
+                        Text(
+                            text = if (isCondo) "🏢 CONDOMÍNIO" else "Unidade: ${occ.apartment}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isCondo) MaterialTheme.colorScheme.primary else Color.Black,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        if (occ.title.isNotBlank()) {
+                            Text(
+                                text = "Assunto: ${occ.title}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (occ.title.endsWith("(Desarquivada)")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Surface(
+                            color = when (occ.status) {
+                                "ABERTA" -> Color(0xFFE3F2FD)
+                                "EM_ESPERA" -> Color(0xFFFFF3E0)
+                                "FINALIZADA" -> Color(0xFFE8F5E9)
+                                "ARQUIVADA" -> Color(0xFFECEFF1)
+                                else -> Color.LightGray
+                            },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = occ.status,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = when (occ.status) {
+                                    "ABERTA" -> Color(0xFF1976D2)
+                                    "EM_ESPERA" -> Color(0xFFF57C00)
+                                    "FINALIZADA" -> Color(0xFF388E3C)
+                                    "ARQUIVADA" -> Color(0xFF546E7A)
+                                    else -> Color.DarkGray
+                                }
+                            )
+                        }
+
+                        if (onEditOccurrence != null) {
+                            IconButton(
+                                onClick = { showEditHeaderDialog = true },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = "Editar Ocorrência",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
             Spacer(Modifier.height(8.dp))
-
-            Text(
-                occ.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                color = if (occ.title.endsWith("(Desarquivada)")) MaterialTheme.colorScheme.primary else Color.Unspecified
-            )
-
-            Spacer(Modifier.height(4.dp))
 
             Row(
                 Modifier.fillMaxWidth(),
@@ -1509,6 +1628,132 @@ fun OccurrenceLogsDialog(dao: AppDao, onDismiss: () -> Unit) {
                 }
                 Spacer(Modifier.height(16.dp))
                 Button(onClick = onDismiss, Modifier.align(Alignment.End)) { Text("Fechar") }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditOccurrenceDialog(
+    occurrence: OccurrenceEntity,
+    occNumber: Any = occurrence.id,
+    firstMessageText: String,
+    onDismiss: () -> Unit,
+    onConfirm: (newApartment: String, newTitle: String, newDescription: String) -> Unit
+) {
+    var isCondo by remember { mutableStateOf(occurrence.apartment == "CONDOMÍNIO" || occurrence.apartment.isBlank()) }
+    var apartment by remember { mutableStateOf(if (occurrence.apartment == "CONDOMÍNIO") "" else occurrence.apartment) }
+    var title by remember { mutableStateOf(occurrence.title) }
+    var description by remember { mutableStateOf(firstMessageText) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .padding(vertical = 16.dp)
+                .imePadding()
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("Editar Ocorrência", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("Nº $occNumber", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                HorizontalDivider(thickness = 0.5.dp)
+
+                Column {
+                    Text("Local da Ocorrência:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        FilterChip(
+                            selected = !isCondo,
+                            onClick = { isCondo = false },
+                            label = { Text("Unidade", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall) },
+                            leadingIcon = if (!isCondo) { { Icon(Icons.Default.Apartment, null, Modifier.size(18.dp)) } } else null,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        FilterChip(
+                            selected = isCondo,
+                            onClick = { isCondo = true },
+                            label = { Text("Condomínio", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall) },
+                            leadingIcon = if (isCondo) { { Icon(Icons.Default.Groups, null, Modifier.size(18.dp)) } } else null,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                if (!isCondo) {
+                    OutlinedTextField(
+                        value = apartment,
+                        onValueChange = { apartment = it },
+                        label = { Text("Nº do Apartamento") },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = { Icon(Icons.Default.Apartment, null) },
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
+                    )
+                }
+
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Assunto / Título") },
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = { Icon(Icons.Default.Description, null) },
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Descrição") },
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = { Icon(Icons.Default.Build, null) },
+                    minLines = 3,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                        Text("Cancelar", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (title.isNotBlank() && (isCondo || apartment.isNotBlank())) {
+                                val finalApt = if (isCondo) "CONDOMÍNIO" else apartment
+                                onConfirm(finalApt, title.trim(), description.trim())
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        enabled = title.isNotBlank() && (isCondo || apartment.isNotBlank()),
+                        modifier = Modifier.weight(2f)
+                    ) {
+                        Text("Salvar Alterações", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
             }
         }
     }
