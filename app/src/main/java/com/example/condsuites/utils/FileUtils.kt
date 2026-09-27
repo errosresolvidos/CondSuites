@@ -30,6 +30,13 @@ fun isImageFile(fileName: String): Boolean {
     return ext in listOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
 }
 
+fun isVideoFile(fileName: String, filePath: String = ""): Boolean {
+    val nameExt = fileName.substringAfterLast('.', "").lowercase()
+    val pathExt = filePath.substringBefore('?').substringAfterLast('.', "").lowercase()
+    val videoExts = listOf("mp4", "mkv", "webm", "avi", "3gp", "mov", "flv", "wmv", "m4v")
+    return nameExt in videoExts || pathExt in videoExts || filePath.contains("/video/upload/", ignoreCase = true)
+}
+
 @RequiresApi(Build.VERSION_CODES.Q)
 suspend fun downloadFile(context: Context, filePath: String, fileName: String): Boolean {
     return withContext(Dispatchers.IO) {
@@ -239,7 +246,54 @@ fun uriToBase64(context: Context, uri: Uri): String? {
     }
 }
 
+fun openVideoFile(context: Context, videoPath: String) {
+    try {
+        if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(videoPath)).apply {
+                    setDataAndType(Uri.parse(videoPath), "video/*")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } catch (_: Exception) {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(videoPath)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            }
+            return
+        }
+
+        val file = File(videoPath)
+        if (!file.exists()) {
+            Toast.makeText(context, "Arquivo de vídeo não encontrado", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val uri = try {
+            FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+        } catch (_: Exception) {
+            Uri.fromFile(file)
+        }
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "video/*")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        e.printStackTrace()
+        Toast.makeText(context, "Não foi possível abrir o vídeo", Toast.LENGTH_SHORT).show()
+    }
+}
+
 fun openFile(context: Context, filePath: String) {
+    if (isVideoFile("", filePath)) {
+        openVideoFile(context, filePath)
+        return
+    }
+
     if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(filePath)).apply {

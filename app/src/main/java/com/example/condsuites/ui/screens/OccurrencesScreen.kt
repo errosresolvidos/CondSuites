@@ -42,6 +42,8 @@ import com.example.condsuites.ui.components.ProfessionalBudgetActionButton
 import com.example.condsuites.utils.CurrencyVisualTransformation
 import com.example.condsuites.utils.formatCurrency
 import com.example.condsuites.utils.getFileName
+import com.example.condsuites.utils.isImageFile
+import com.example.condsuites.utils.isVideoFile
 import com.example.condsuites.utils.uploadImageToCloudinary
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -1021,10 +1023,18 @@ fun OccurrenceCard(
                         Text("Anexos (${selectedUris.size}):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         Column {
                             selectedUris.forEach { uri ->
+                                val fName = getFileName(context, uri)
+                                val isVid = isVideoFile(fName, uri.toString())
+                                val isImg = isImageFile(fName)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.AutoMirrored.Filled.InsertDriveFile, null, Modifier.size(16.dp), tint = Color.Gray)
+                                    Icon(
+                                        if (isImg) Icons.Default.Image else if (isVid) Icons.Default.Videocam else Icons.AutoMirrored.Filled.InsertDriveFile,
+                                        null,
+                                        Modifier.size(16.dp),
+                                        tint = Color.Gray
+                                    )
                                     Spacer(Modifier.width(4.dp))
-                                    Text(getFileName(context, uri), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                    Text(fName, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                                     IconButton(onClick = { selectedUris.removeIf { it == uri } }, modifier = Modifier.size(24.dp)) {
                                         Icon(Icons.Default.Close, null, Modifier.size(14.dp), tint = Color.Red)
                                     }
@@ -1617,14 +1627,22 @@ fun RegisterOccurrenceDialog(
                         Spacer(Modifier.height(8.dp))
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             selectedUris.forEach { uri ->
+                                val fName = getFileName(context, uri)
+                                val isVid = isVideoFile(fName, uri.toString())
+                                val isImg = isImageFile(fName)
                                 Surface(
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
                                     Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.AutoMirrored.Filled.InsertDriveFile, null, Modifier.size(20.dp), tint = Color.Gray)
+                                        Icon(
+                                            if (isImg) Icons.Default.Image else if (isVid) Icons.Default.Videocam else Icons.AutoMirrored.Filled.InsertDriveFile,
+                                            null,
+                                            Modifier.size(20.dp),
+                                            tint = Color.Gray
+                                        )
                                         Spacer(Modifier.width(8.dp))
-                                        Text(getFileName(context, uri), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                        Text(fName, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                                         IconButton(onClick = { selectedUris.removeIf { it == uri } }, modifier = Modifier.size(32.dp)) {
                                             Icon(Icons.Default.Close, null, Modifier.size(18.dp), tint = Color.Red)
                                         }

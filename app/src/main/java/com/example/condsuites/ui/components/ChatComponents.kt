@@ -1,12 +1,16 @@
 package com.example.condsuites.ui.components
 
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
+import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -25,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
@@ -33,8 +38,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.example.condsuites.data.model.AttachmentWithVotes
 import com.example.condsuites.data.model.UserEntity
@@ -43,7 +50,9 @@ import com.example.condsuites.utils.downloadFile
 import com.example.condsuites.utils.formatCurrency
 import com.example.condsuites.utils.getFileName
 import com.example.condsuites.utils.isImageFile
+import com.example.condsuites.utils.isVideoFile
 import com.example.condsuites.utils.openFile
+import com.example.condsuites.utils.openVideoFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,6 +61,277 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+
+@Composable
+fun VideoThumbnailImage(
+    filePath: String,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop
+) {
+    val context = LocalContext.current
+    var bitmap by remember(filePath) { mutableStateOf<Bitmap?>(null) }
+    var isLoading by remember(filePath) { mutableStateOf(true) }
+
+    val isCloudinaryVideo = filePath.contains("cloudinary.com") && filePath.contains("/video/upload/")
+    val posterUrl = if (isCloudinaryVideo) {
+        filePath.replace(Regex("\\.(mp4|mov|mkv|webm|avi|3gp|flv|wmv|m4v)($|\\?)", RegexOption.IGNORE_CASE), ".jpg$2")
+    } else null
+
+    LaunchedEffect(filePath) {
+        if (!isCloudinaryVideo) {
+            withContext(Dispatchers.IO) {
+                var retriever: MediaMetadataRetriever? = null
+                try {
+                    retriever = MediaMetadataRetriever()
+                    when {
+                        filePath.startsWith("http://") || filePath.startsWith("https://") -> {
+                            retriever.setDataSource(filePath, HashMap<String, String>())
+                        }
+                        filePath.startsWith("content://") -> {
+                            retriever.setDataSource(context, Uri.parse(filePath))
+                        }
+                        else -> {
+                            val file = File(filePath)
+                            if (file.exists()) {
+                                retriever.setDataSource(file.absolutePath)
+                            }
+                        }
+                    }
+                    val frame = retriever.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        ?: retriever.frameAtTime
+                    bitmap = frame
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                } finally {
+                    try { retriever?.release() } catch (_: Exception) {}
+                    isLoading = false
+                }
+            }
+        } else {
+            isLoading = false
+        }
+    }
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        if (posterUrl != null) {
+            AsyncImage(
+                model = posterUrl,
+                contentDescription = "Miniatura do vídeo",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = contentScale
+            )
+        } else if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = "Miniatura do vídeo",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = contentScale
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.DarkGray),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Videocam,
+                        contentDescription = "Vídeo",
+                        tint = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
+        }
+
+        Surface(
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.55f),
+            border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.9f)),
+            modifier = Modifier.size(44.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Reproduzir vídeo",
+                    tint = Color.White,
+                    modifier = Modifier.size(30.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun FullScreenVideoDialog(
+    videoPath: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var isPlaying by remember { mutableStateOf(false) }
+    var isPrepared by remember { mutableStateOf(false) }
+    var hasError by remember { mutableStateOf(false) }
+    var videoViewRef by remember { mutableStateOf<VideoView?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                videoViewRef?.stopPlayback()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = {
+            try { videoViewRef?.stopPlayback() } catch (_: Exception) {}
+            onDismiss()
+        },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!hasError) {
+                AndroidView(
+                    factory = { ctx ->
+                        VideoView(ctx).apply {
+                            videoViewRef = this
+                            try {
+                                if (videoPath.startsWith("http://") || videoPath.startsWith("https://") || videoPath.startsWith("content://")) {
+                                    setVideoURI(Uri.parse(videoPath))
+                                } else {
+                                    val file = File(videoPath)
+                                    if (file.exists()) {
+                                        setVideoPath(file.absolutePath)
+                                    } else {
+                                        setVideoURI(Uri.parse(videoPath))
+                                    }
+                                }
+                                setOnPreparedListener { mp ->
+                                    isPrepared = true
+                                    mp.isLooping = true
+                                    start()
+                                    isPlaying = true
+                                }
+                                setOnErrorListener { _, _, _ ->
+                                    hasError = true
+                                    openVideoFile(ctx, videoPath)
+                                    onDismiss()
+                                    true
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                hasError = true
+                                openVideoFile(ctx, videoPath)
+                                onDismiss()
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .clickable {
+                            videoViewRef?.let { vv ->
+                                try {
+                                    if (vv.isPlaying) {
+                                        vv.pause()
+                                        isPlaying = false
+                                    } else {
+                                        vv.start()
+                                        isPlaying = true
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+                        }
+                )
+            }
+
+            if (!isPrepared && !hasError) {
+                CircularProgressIndicator(color = Color.White)
+            }
+
+            if (isPrepared && !isPlaying && !hasError) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.6f),
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clickable {
+                            videoViewRef?.let { vv ->
+                                try {
+                                    vv.start()
+                                    isPlaying = true
+                                } catch (_: Exception) {}
+                            }
+                        }
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Reproduzir",
+                            tint = Color.White,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = {
+                    try { videoViewRef?.stopPlayback() } catch (_: Exception) {}
+                    openVideoFile(context, videoPath)
+                    onDismiss()
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInNew,
+                        contentDescription = "Abrir em aplicativo externo",
+                        tint = Color.White
+                    )
+                }
+
+                Text(
+                    text = "Vídeo",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+
+                IconButton(onClick = {
+                    try { videoViewRef?.stopPlayback() } catch (_: Exception) {}
+                    onDismiss()
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Fechar",
+                        tint = Color.White
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun ProfessionalBudgetBadgeIcon(
@@ -228,6 +508,7 @@ fun BudgetVotingCard(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var fullScreenVideoPath by remember { mutableStateOf<String?>(null) }
     val totalVotes = attachments.sumOf { it.votes.size }
     val canVote = (currentUser.role == "Conselheiro Fiscal" || currentUser.role == "Síndico" || currentUser.role == "ADMIN") && !isVotingClosed
 
@@ -337,6 +618,7 @@ fun BudgetVotingCard(
                         val votePercent = (voteFraction * 100).toInt()
                         val hasVoted = attWithVotes.votes.any { it.username == currentUser.username }
                         val isImg = isImageFile(att.fileName)
+                        val isVid = isVideoFile(att.fileName, att.filePath)
 
                         Surface(
                             color = if (hasVoted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -360,6 +642,7 @@ fun BudgetVotingCard(
                                             .size(48.dp)
                                             .clickable {
                                                 if (isImg) onOpenImage(att.filePath)
+                                                else if (isVid) fullScreenVideoPath = att.filePath
                                                 else openFile(context, att.filePath)
                                             }
                                     ) {
@@ -378,6 +661,12 @@ fun BudgetVotingCard(
                                                 AsyncImage(
                                                     model = imageModel,
                                                     contentDescription = null,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            } else if (isVid) {
+                                                VideoThumbnailImage(
+                                                    filePath = att.filePath,
                                                     modifier = Modifier.fillMaxSize(),
                                                     contentScale = ContentScale.Crop
                                                 )
@@ -553,6 +842,13 @@ fun BudgetVotingCard(
             }
         }
     }
+
+    if (fullScreenVideoPath != null) {
+        FullScreenVideoDialog(
+            videoPath = fullScreenVideoPath!!,
+            onDismiss = { fullScreenVideoPath = null }
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -578,6 +874,7 @@ fun ChatBubble(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var fullScreenImagePath by remember { mutableStateOf<String?>(null) }
+    var fullScreenVideoPath by remember { mutableStateOf<String?>(null) }
     var showCloseVotingDialog by remember { mutableStateOf(false) }
 
     val alignment = if (isFromMe) Alignment.End else Alignment.Start
@@ -653,6 +950,7 @@ fun ChatBubble(
                             attachments.forEach { attWithVotes ->
                                 val att = attWithVotes.attachment
                                 val isImg = isImageFile(att.fileName)
+                                val isVid = isVideoFile(att.fileName, att.filePath)
 
                                 Surface(
                                     color = if (isFromMe) Color(0xFFC3E8B0) else Color(0xFFF0F0F0),
@@ -660,6 +958,7 @@ fun ChatBubble(
                                     border = BorderStroke(0.5.dp, Color.LightGray.copy(alpha = 0.5f)),
                                     modifier = Modifier.clickable {
                                         if (isImg) fullScreenImagePath = att.filePath
+                                        else if (isVid) fullScreenVideoPath = att.filePath
                                         else openFile(context, att.filePath)
                                     }
                                 ) {
@@ -685,13 +984,22 @@ fun ChatBubble(
                                                     .background(Color.Black.copy(alpha = 0.05f)),
                                                 contentScale = ContentScale.Crop
                                             )
+                                        } else if (isVid) {
+                                            VideoThumbnailImage(
+                                                filePath = att.filePath,
+                                                modifier = Modifier
+                                                    .fillMaxWidth(0.7f)
+                                                    .height(180.dp)
+                                                    .background(Color.Black)
+                                            )
                                         }
+
                                         Row(
                                             Modifier.padding(8.dp).fillMaxWidth(0.7f),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(
-                                                if (isImg) Icons.Default.Image else Icons.AutoMirrored.Filled.InsertDriveFile,
+                                                if (isImg) Icons.Default.Image else if (isVid) Icons.Default.Videocam else Icons.AutoMirrored.Filled.InsertDriveFile,
                                                 null,
                                                 Modifier.size(20.dp),
                                                 tint = if (isFromMe) Color(0xFF075E54) else Color.Gray
@@ -769,6 +1077,13 @@ fun ChatBubble(
         FullScreenImageDialog(
             filePath = fullScreenImagePath!!,
             onDismiss = { fullScreenImagePath = null }
+        )
+    }
+
+    if (fullScreenVideoPath != null) {
+        FullScreenVideoDialog(
+            videoPath = fullScreenVideoPath!!,
+            onDismiss = { fullScreenVideoPath = null }
         )
     }
 }
