@@ -22,6 +22,7 @@ import com.example.condsuites.data.model.ProcessStatusEntity
 import com.example.condsuites.data.model.ServiceDescriptionEntity
 import com.example.condsuites.data.model.ServiceInstallmentEntity
 import com.example.condsuites.data.model.ServiceOrderEntity
+import com.example.condsuites.service.FirestoreSyncManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -838,7 +839,13 @@ object ExcelHelper {
                 }
                 workbook.getSheet("ConfigServiços")?.let { sheet ->
                     for (i in 1..sheet.lastRowNum) {
-                        sheet.getRow(i)?.getCell(0)?.stringCellValue?.let { if(it.isNotBlank()) dao.insertServiceDescription(ServiceDescriptionEntity(it)) }
+                        sheet.getRow(i)?.getCell(0)?.stringCellValue?.let {
+                            if(it.isNotBlank()) {
+                                val entity = ServiceDescriptionEntity(it)
+                                dao.insertServiceDescription(entity)
+                                FirestoreSyncManager.syncServiceDescription(entity)
+                            }
+                        }
                     }
                 }
                 workbook.getSheet("ConfigStatusProc")?.let { sheet ->
@@ -848,7 +855,13 @@ object ExcelHelper {
                 }
                 workbook.getSheet("ConfigOcorrências")?.let { sheet ->
                     for (i in 1..sheet.lastRowNum) {
-                        sheet.getRow(i)?.getCell(0)?.stringCellValue?.let { if(it.isNotBlank()) dao.insertOccurrenceType(OccurrenceTypeEntity(it)) }
+                        sheet.getRow(i)?.getCell(0)?.stringCellValue?.let {
+                            if(it.isNotBlank()) {
+                                val entity = OccurrenceTypeEntity(it)
+                                dao.insertOccurrenceType(entity)
+                                FirestoreSyncManager.syncOccurrenceType(entity)
+                            }
+                        }
                     }
                 }
 

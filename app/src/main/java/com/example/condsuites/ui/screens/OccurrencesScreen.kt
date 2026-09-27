@@ -900,14 +900,16 @@ fun RegisterOccurrenceDialog(
     val serviceDescriptionsList by dao.getServiceDescriptions().collectAsState(initial = emptyList())
     val dbOccurrenceTypes by dao.getOccurrenceTypes().collectAsState(initial = emptyList())
     
-    val defaultDescs = remember { mutableStateListOf("TROCA DE DICTADOR", "TROCA DE BOTÃO", "TROCA DE VENTILADOR") }
-    val allDescs = remember(serviceDescriptionsList, defaultDescs.size) {
-        (defaultDescs + serviceDescriptionsList.map { it.description }).distinct()
+    val defaultDescs = remember { listOf("TROCA DE DICTADOR", "TROCA DE BOTÃO", "TROCA DE VENTILADOR") }
+    val allDescs = remember(serviceDescriptionsList) {
+        val list = serviceDescriptionsList.map { it.description }
+        if (list.isEmpty()) defaultDescs else (defaultDescs + list).distinct()
     }
     
-    val subjectsList = remember { mutableStateListOf("Elevador Social", "Elevador de Serviço", "Piscina", "Jardim", "Vazamento", "Caixa D'água", "Câmeras", "Barulho", "Infiltração", "Limpeza") }
-    val allSubjects = remember(dbOccurrenceTypes, subjectsList.size) {
-        (subjectsList + dbOccurrenceTypes.map { it.type }).distinct()
+    val defaultSubjects = remember { listOf("Elevador Social", "Elevador de Serviço", "Piscina", "Jardim", "Vazamento", "Caixa D'água", "Câmeras", "Barulho", "Infiltração", "Limpeza") }
+    val allSubjects = remember(dbOccurrenceTypes) {
+        val list = dbOccurrenceTypes.map { it.type }
+        if (list.isEmpty()) defaultSubjects else (defaultSubjects + list).distinct()
     }
     
     var showAddDescDialog by remember { mutableStateOf(false) }
@@ -1273,11 +1275,10 @@ fun RegisterOccurrenceDialog(
                                 onClick = {
                                     if (newDescText.isNotBlank()) {
                                         val trimmed = newDescText.trim()
-                                        if (!defaultDescs.contains(trimmed)) {
-                                            defaultDescs.add(trimmed)
-                                        }
                                         scope.launch {
-                                            dao.insertServiceDescription(ServiceDescriptionEntity(description = trimmed))
+                                            val entity = ServiceDescriptionEntity(description = trimmed)
+                                            dao.insertServiceDescription(entity)
+                                            FirestoreSyncManager.syncServiceDescription(entity)
                                         }
                                         desc = trimmed
                                         newDescText = ""
@@ -1314,11 +1315,10 @@ fun RegisterOccurrenceDialog(
                                 onClick = {
                                     if (newSubjectText.isNotBlank()) {
                                         val trimmed = newSubjectText.trim()
-                                        if (!subjectsList.contains(trimmed)) {
-                                            subjectsList.add(trimmed)
-                                        }
                                         scope.launch {
-                                            dao.insertOccurrenceType(OccurrenceTypeEntity(type = trimmed))
+                                            val entity = OccurrenceTypeEntity(type = trimmed)
+                                            dao.insertOccurrenceType(entity)
+                                            FirestoreSyncManager.syncOccurrenceType(entity)
                                         }
                                         title = trimmed
                                         newSubjectText = ""
@@ -1346,9 +1346,9 @@ fun RegisterOccurrenceDialog(
                             Button(
                                 onClick = {
                                     val toDelete = subjectToDelete!!
-                                    subjectsList.remove(toDelete)
                                     scope.launch {
                                         dao.deleteOccurrenceType(toDelete)
+                                        FirestoreSyncManager.syncOccurrenceType(OccurrenceTypeEntity(type = toDelete), isDelete = true)
                                     }
                                     if (title == toDelete) title = ""
                                     subjectToDelete = null
@@ -1375,9 +1375,9 @@ fun RegisterOccurrenceDialog(
                             Button(
                                 onClick = {
                                     val toDelete = descToDelete!!
-                                    defaultDescs.remove(toDelete)
                                     scope.launch {
                                         dao.deleteServiceDescription(toDelete)
+                                        FirestoreSyncManager.syncServiceDescription(ServiceDescriptionEntity(description = toDelete), isDelete = true)
                                     }
                                     if (desc == toDelete) desc = ""
                                     descToDelete = null

@@ -1,6 +1,7 @@
 package com.example.condsuites.service
 
 import android.content.Context
+import android.net.Uri
 import com.example.condsuites.data.dao.AppDao
 import com.example.condsuites.data.model.AgreementEntity
 import com.example.condsuites.data.model.ContractEntity
@@ -12,7 +13,9 @@ import com.example.condsuites.data.model.OccurrenceAttachmentEntity
 import com.example.condsuites.data.model.OccurrenceAttachmentVoteEntity
 import com.example.condsuites.data.model.OccurrenceEntity
 import com.example.condsuites.data.model.OccurrenceMessageEntity
+import com.example.condsuites.data.model.OccurrenceTypeEntity
 import com.example.condsuites.data.model.OvertimeEntity
+import com.example.condsuites.data.model.ServiceDescriptionEntity
 import com.example.condsuites.data.model.ServiceOrderEntity
 import com.example.condsuites.data.model.UnitEntity
 import com.example.condsuites.data.model.UserEntity
@@ -255,6 +258,40 @@ object FirestoreSyncManager {
         }
     }
 
+    fun syncServiceDescription(desc: ServiceDescriptionEntity, isDelete: Boolean = false) {
+        try {
+            val db = firestore ?: return
+            if (desc.description.isBlank()) return
+            val docId = Uri.encode(desc.description)
+            val docRef = db.collection("config_service_descriptions").document(docId)
+            val task = if (isDelete) docRef.delete() else docRef.set(desc)
+            task.addOnSuccessListener {
+                android.util.Log.d("FIRESTORE_SYNC", "Successfully synced service description ${desc.description}")
+            }.addOnFailureListener { e ->
+                android.util.Log.e("FIRESTORE_SYNC", "Failed to sync service description ${desc.description}: ${e.message}", e)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FIRESTORE_SYNC", "Error in syncServiceDescription: ${e.message}")
+        }
+    }
+
+    fun syncOccurrenceType(type: OccurrenceTypeEntity, isDelete: Boolean = false) {
+        try {
+            val db = firestore ?: return
+            if (type.type.isBlank()) return
+            val docId = Uri.encode(type.type)
+            val docRef = db.collection("config_occurrence_types").document(docId)
+            val task = if (isDelete) docRef.delete() else docRef.set(type)
+            task.addOnSuccessListener {
+                android.util.Log.d("FIRESTORE_SYNC", "Successfully synced occurrence type ${type.type}")
+            }.addOnFailureListener { e ->
+                android.util.Log.e("FIRESTORE_SYNC", "Failed to sync occurrence type ${type.type}: ${e.message}", e)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FIRESTORE_SYNC", "Error in syncOccurrenceType: ${e.message}")
+        }
+    }
+
     fun pullAllFromCloud(dao: AppDao, scope: CoroutineScope) {
         val db = firestore ?: return
         scope.launch(Dispatchers.IO) {
@@ -453,6 +490,44 @@ object FirestoreSyncManager {
                         if (item != null) dao.insertTransaction(item)
                     }
                 } catch (_: Exception) {}
+
+                try {
+                    val snap = com.google.android.gms.tasks.Tasks.await(db.collection("config_service_descriptions").get(), 10, TimeUnit.SECONDS)
+                    val list = snap.toObjects(ServiceDescriptionEntity::class.java)
+                    if (list.isNotEmpty()) {
+                        for (item in list) {
+                            if (item.description.isNotBlank()) dao.insertServiceDescription(item)
+                        }
+                    } else {
+                        val defaults = listOf("TROCA DE DICTADOR", "TROCA DE BOTÃO", "TROCA DE VENTILADOR")
+                        for (d in defaults) {
+                            val entity = ServiceDescriptionEntity(description = d)
+                            dao.insertServiceDescription(entity)
+                            syncServiceDescription(entity)
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("FIRESTORE_SYNC", "Error pulling config_service_descriptions: ${e.message}")
+                }
+
+                try {
+                    val snap = com.google.android.gms.tasks.Tasks.await(db.collection("config_occurrence_types").get(), 10, TimeUnit.SECONDS)
+                    val list = snap.toObjects(OccurrenceTypeEntity::class.java)
+                    if (list.isNotEmpty()) {
+                        for (item in list) {
+                            if (item.type.isNotBlank()) dao.insertOccurrenceType(item)
+                        }
+                    } else {
+                        val defaults = listOf("Elevador Social", "Elevador de Serviço", "Piscina", "Jardim", "Vazamento", "Caixa D'água", "Câmeras", "Barulho", "Infiltração", "Limpeza")
+                        for (t in defaults) {
+                            val entity = OccurrenceTypeEntity(type = t)
+                            dao.insertOccurrenceType(entity)
+                            syncOccurrenceType(entity)
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("FIRESTORE_SYNC", "Error pulling config_occurrence_types: ${e.message}")
+                }
 
                 android.util.Log.d("FIRESTORE_SYNC", "Sequential pull from cloud finished successfully.")
             } catch (e: Exception) {
@@ -908,6 +983,56 @@ object FirestoreSyncManager {
                             isFirstFinancePass.set(false)
                         } catch (e: Exception) {
                             android.util.Log.e("FIRESTORE_SYNC", "Error processing finance transactions snapshot: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+
+            db.collection("config_service_descriptions").addSnapshotListener { snapshot, error ->
+                if (error == null && snapshot != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            for (dc in snapshot.documentChanges) {
+                                val item = dc.document.toObject(ServiceDescriptionEntity::class.java)
+                                if (item.description.isNotBlank()) {
+                                    when (dc.type) {
+                                        com.google.firebase.firestore.DocumentChange.Type.ADDED,
+                                        com.google.firebase.firestore.DocumentChange.Type.MODIFIED -> {
+                                            dao.insertServiceDescription(item)
+                                        }
+                                        com.google.firebase.firestore.DocumentChange.Type.REMOVED -> {
+                                            dao.deleteServiceDescription(item.description)
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("FIRESTORE_SYNC", "Error in service_descriptions listener: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+
+            db.collection("config_occurrence_types").addSnapshotListener { snapshot, error ->
+                if (error == null && snapshot != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            for (dc in snapshot.documentChanges) {
+                                val item = dc.document.toObject(OccurrenceTypeEntity::class.java)
+                                if (item.type.isNotBlank()) {
+                                    when (dc.type) {
+                                        com.google.firebase.firestore.DocumentChange.Type.ADDED,
+                                        com.google.firebase.firestore.DocumentChange.Type.MODIFIED -> {
+                                            dao.insertOccurrenceType(item)
+                                        }
+                                        com.google.firebase.firestore.DocumentChange.Type.REMOVED -> {
+                                            dao.deleteOccurrenceType(item.type)
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("FIRESTORE_SYNC", "Error in occurrence_types listener: ${e.message}", e)
                         }
                     }
                 }

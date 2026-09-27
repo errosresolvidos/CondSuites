@@ -80,10 +80,14 @@ data class NotificationLogEntity(
 data class FloorEntity(@PrimaryKey val floor: String)
 
 @Entity(tableName = "config_service_descriptions")
-data class ServiceDescriptionEntity(@PrimaryKey val description: String)
+data class ServiceDescriptionEntity(
+    @PrimaryKey @get:PropertyName("description") @set:PropertyName("description") var description: String = ""
+)
 
 @Entity(tableName = "config_process_statuses")
 data class ProcessStatusEntity(@PrimaryKey val status: String)
 
 @Entity(tableName = "config_occurrence_types")
-data class OccurrenceTypeEntity(@PrimaryKey val type: String)
+data class OccurrenceTypeEntity(
+    @PrimaryKey @get:PropertyName("type") @set:PropertyName("type") var type: String = ""
+)
