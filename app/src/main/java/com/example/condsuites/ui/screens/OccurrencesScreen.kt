@@ -556,6 +556,38 @@ fun OccurrencesScreen(
     }
 }
 
+private fun getOccurrenceCreationMillis(occ: OccurrenceEntity, messages: List<MessageWithAttachments>): Long {
+    if (occ.date.isNotBlank()) {
+        try {
+            val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+            val parsed = sdf.parse(occ.date)
+            if (parsed != null) return parsed.time
+        } catch (_: Exception) {}
+        try {
+            val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+            val parsed = sdf.parse(occ.date)
+            if (parsed != null) return parsed.time
+        } catch (_: Exception) {}
+    }
+    if (occ.id > 1_000_000_000_000L) {
+        return occ.id
+    }
+    val firstMsg = messages.sortedBy { it.message.id }.firstOrNull()?.message
+    if (firstMsg != null) {
+        if (firstMsg.date.isNotBlank()) {
+            try {
+                val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                val parsed = sdf.parse(firstMsg.date)
+                if (parsed != null) return parsed.time
+            } catch (_: Exception) {}
+        }
+        if (firstMsg.id > 1_000_000_000_000L) {
+            return firstMsg.id
+        }
+    }
+    return System.currentTimeMillis()
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OccurrenceCard(
@@ -590,13 +622,23 @@ fun OccurrenceCard(
     val messages = occWithMsgs.messages.sortedBy { it.message.id }
     val isCondo = occ.apartment == "CONDOMÍNIO"
 
+    val isAdmin = currentUser.role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true)
+    val creatorUsername = occ.createdByUsername.ifBlank { messages.firstOrNull()?.message?.senderUsername ?: "" }
+    val isCreator = creatorUsername.isNotBlank() && creatorUsername.equals(currentUser.username, ignoreCase = true)
+
+    val creationMillis = remember(occ.id, occ.date, messages.firstOrNull()?.message?.id) {
+        getOccurrenceCreationMillis(occ, messages)
+    }
+    val isWithinTwoHours = (System.currentTimeMillis() - creationMillis) <= (2 * 60 * 60 * 1000L)
+    val canEditOccurrence = onEditOccurrence != null && (isAdmin || (isCreator && isWithinTwoHours))
+
     LaunchedEffect(expanded, messages.size) {
         if (expanded) {
             onMarkAsRead()
         }
     }
 
-    if (showEditHeaderDialog && onEditOccurrence != null) {
+    if (showEditHeaderDialog && canEditOccurrence) {
         val firstMsgText = messages.firstOrNull()?.message?.text ?: ""
         EditOccurrenceDialog(
             occurrence = occ,
@@ -720,7 +762,7 @@ fun OccurrenceCard(
                             )
                         }
 
-                        if (onEditOccurrence != null) {
+                        if (canEditOccurrence) {
                             IconButton(
                                 onClick = { showEditHeaderDialog = true },
                                 modifier = Modifier.size(28.dp)
