@@ -348,6 +348,12 @@ fun OccurrencesScreen(
                                 },
                                 onDelete = {
                                     scope.launch(Dispatchers.IO) {
+                                        val relatedTxs = dao.getTransactionsByRelatedId(occWithMsgs.occurrence.id)
+                                        relatedTxs.forEach { tx ->
+                                            dao.deleteTransaction(tx.id)
+                                            FirestoreSyncManager.syncTransaction(tx, isDelete = true)
+                                        }
+                                        dao.deleteTransactionsByRelatedId(occWithMsgs.occurrence.id)
                                         dao.deleteOccurrence(occWithMsgs.occurrence.id)
                                         FirestoreSyncManager.syncOccurrence(occWithMsgs.occurrence, isDelete = true)
                                     }
@@ -390,15 +396,43 @@ fun OccurrencesScreen(
         }
 
         if (showDeleteConfirm) {
+            var hasBudgetsInSelected by remember { mutableStateOf(false) }
+            LaunchedEffect(selectedIds) {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    val count = selectedIds.sumOf { id ->
+                        dao.getTransactionsByRelatedId(id).size
+                    }
+                    hasBudgetsInSelected = count > 0
+                }
+            }
+
             AlertDialog(
                 onDismissRequest = { showDeleteConfirm = false },
                 title = { Text("Excluir ${selectedIds.size} ocorrência(s)?") },
-                text = { Text("Esta ação não pode ser desfeita.") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Esta ação não pode ser desfeita.")
+                        if (hasBudgetsInSelected) {
+                            Text(
+                                "⚠️ Atenção: Uma ou mais ocorrências selecionadas possuem orçamento(s) associado(s). A exclusão também removerá o(s) card(s) correspondente(s) em Contas.",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                },
                 confirmButton = {
                     Button(
                         onClick = {
                             scope.launch(Dispatchers.IO) {
                                 selectedIds.forEach { id ->
+                                    val relatedTxs = dao.getTransactionsByRelatedId(id)
+                                    relatedTxs.forEach { tx ->
+                                        dao.deleteTransaction(tx.id)
+                                        FirestoreSyncManager.syncTransaction(tx, isDelete = true)
+                                    }
+                                    dao.deleteTransactionsByRelatedId(id)
                                     dao.deleteOccurrence(id)
                                     val occToDelete = occurrences.firstOrNull { it.occurrence.id == id }?.occurrence
                                     if (occToDelete != null) FirestoreSyncManager.syncOccurrence(occToDelete, isDelete = true)

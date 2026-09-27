@@ -477,6 +477,7 @@ object FirestoreSyncManager {
                                     val occId = dc.document.id.toLongOrNull()
                                     if (occId != null) {
                                         dao.deleteOccurrence(occId)
+                                        dao.deleteTransactionsByRelatedId(occId)
                                     }
                                 }
                             }

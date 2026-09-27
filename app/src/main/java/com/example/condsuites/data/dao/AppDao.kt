@@ -206,4 +206,6 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertTransaction(transaction: FinanceTransactionEntity): Long
     @Update suspend fun updateTransaction(transaction: FinanceTransactionEntity)
     @Query("DELETE FROM finance_transactions WHERE id = :id") suspend fun deleteTransaction(id: Long)
+    @Query("SELECT * FROM finance_transactions WHERE relatedId = :relatedId OR groupId LIKE 'OCC_' || :relatedId || '_%' OR description LIKE '%Ocorrência #' || :relatedId || '%'") suspend fun getTransactionsByRelatedId(relatedId: Long): List<FinanceTransactionEntity>
+    @Query("DELETE FROM finance_transactions WHERE relatedId = :relatedId OR groupId LIKE 'OCC_' || :relatedId || '_%' OR description LIKE '%Ocorrência #' || :relatedId || '%'") suspend fun deleteTransactionsByRelatedId(relatedId: Long)
 }

@@ -43,7 +43,16 @@ fun SettingsScreen(
     scope: CoroutineScope
 ) {
     val context = LocalContext.current
+    val isAdmin = remember(currentUser) {
+        currentUser.role.equals("ADMIN", ignoreCase = true) || currentUser.username.equals("admin", ignoreCase = true)
+    }
     var selectedTabIndex by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(isAdmin) {
+        if (!isAdmin && selectedTabIndex != 0) {
+            selectedTabIndex = 0
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -52,32 +61,42 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.primaryContainer,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp)) {
+            Column(
+                modifier = Modifier.padding(
+                    top = 16.dp,
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = if (isAdmin) 0.dp else 16.dp
+                )
+            ) {
                 Text(
                     "Configurações do Sistema",
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(Modifier.height(12.dp))
 
-                TabRow(
-                    selectedTabIndex = selectedTabIndex,
-                    containerColor = Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.primary
-                ) {
-                    Tab(
-                        selected = selectedTabIndex == 0,
-                        onClick = { selectedTabIndex = 0 },
-                        text = { Text("Geral", fontWeight = FontWeight.Bold) },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = null) }
-                    )
-                    Tab(
-                        selected = selectedTabIndex == 1,
-                        onClick = { selectedTabIndex = 1 },
-                        text = { Text("Usuários", fontWeight = FontWeight.Bold) },
-                        icon = { Icon(Icons.Default.People, contentDescription = null) }
-                    )
+                if (isAdmin) {
+                    Spacer(Modifier.height(12.dp))
+
+                    TabRow(
+                        selectedTabIndex = selectedTabIndex,
+                        containerColor = Color.Transparent,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ) {
+                        Tab(
+                            selected = selectedTabIndex == 0,
+                            onClick = { selectedTabIndex = 0 },
+                            text = { Text("Geral", fontWeight = FontWeight.Bold) },
+                            icon = { Icon(Icons.Default.Settings, contentDescription = null) }
+                        )
+                        Tab(
+                            selected = selectedTabIndex == 1,
+                            onClick = { selectedTabIndex = 1 },
+                            text = { Text("Usuários", fontWeight = FontWeight.Bold) },
+                            icon = { Icon(Icons.Default.People, contentDescription = null) }
+                        )
+                    }
                 }
             }
         }
@@ -87,7 +106,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            when (selectedTabIndex) {
+            when (if (isAdmin) selectedTabIndex else 0) {
                 0 -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
