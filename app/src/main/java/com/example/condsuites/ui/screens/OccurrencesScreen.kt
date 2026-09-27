@@ -632,13 +632,7 @@ fun OccurrenceCard(
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        if (onEditOccurrence != null) {
-                            showEditHeaderDialog = true
-                        }
-                    }
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     modifier = Modifier
