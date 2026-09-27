@@ -43,7 +43,9 @@ data class OccurrenceMessageEntity(
     @get:PropertyName("isSindicoOnly") @set:PropertyName("isSindicoOnly") var isSindicoOnly: Boolean = false,
     @get:PropertyName("isRead") @set:PropertyName("isRead") var isRead: Boolean = false,
     @get:PropertyName("isVotingClosed") @set:PropertyName("isVotingClosed") var isVotingClosed: Boolean = false,
-    @get:PropertyName("isBudget") @set:PropertyName("isBudget") var isBudget: Boolean = false
+    @get:PropertyName("isBudget") @set:PropertyName("isBudget") var isBudget: Boolean = false,
+    @get:PropertyName("isEdited") @set:PropertyName("isEdited") var isEdited: Boolean = false,
+    @get:PropertyName("timestamp") @set:PropertyName("timestamp") var timestamp: Long = System.currentTimeMillis()
 )
 
 @Entity(

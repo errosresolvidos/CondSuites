@@ -1,6 +1,8 @@
 package com.example.condsuites.ui.screens
 
 import android.net.Uri
+import android.widget.Toast
+import kotlinx.coroutines.withContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -297,6 +299,36 @@ fun OccurrencesScreen(
                                     scope.launch {
                                         dao.deleteOccurrenceMessage(msgId)
                                         FirestoreSyncManager.syncOccurrenceMessage(OccurrenceMessageEntity(id = msgId), isDelete = true)
+                                    }
+                                },
+                                onEditMessage = { msgId, newText ->
+                                    scope.launch {
+                                        val targetMsg = dao.getOccurrenceMessageById(msgId)
+                                        if (targetMsg != null) {
+                                            val creationTime = if (targetMsg.timestamp > 0) targetMsg.timestamp else targetMsg.id
+                                            val elapsed = System.currentTimeMillis() - creationTime
+                                            if (elapsed <= 20 * 60 * 1000L) {
+                                                val updatedMsg = targetMsg.copy(text = newText, isEdited = true)
+                                                dao.updateOccurrenceMessage(updatedMsg)
+                                                FirestoreSyncManager.syncOccurrenceMessage(updatedMsg)
+                                                FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
+                                                dao.insertOccurrenceLog(
+                                                    OccurrenceLogEntity(
+                                                        occurrenceId = occWithMsgs.occurrence.id,
+                                                        username = currentUser.username,
+                                                        action = "EDITOU_MENSAGEM"
+                                                    )
+                                                )
+                                            } else {
+                                                withContext(Dispatchers.Main) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "O tempo limite de 20 minutos para editar a mensagem já expirou.",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                            }
+                                        }
                                     }
                                 },
                                 onToggleVote = { attId, hasVoted ->
@@ -634,6 +666,7 @@ fun OccurrenceCard(
     onUpdateStatus: (String) -> Unit,
     onMarkAsRead: () -> Unit,
     onDeleteMessage: (Long) -> Unit,
+    onEditMessage: ((Long, String) -> Unit)? = null,
     onToggleVote: (Long, Boolean) -> Unit,
     onCloseVoting: (Long, String?, Double?, Int?, Double?, String?, String?) -> Unit,
     onDelete: () -> Unit,
@@ -649,6 +682,8 @@ fun OccurrenceCard(
     var showReplyDialog by remember { mutableStateOf(false) }
     var showBudgetDialog by remember { mutableStateOf(false) }
     var showEditHeaderDialog by remember { mutableStateOf(false) }
+    var messageWithOptions by remember { mutableStateOf<OccurrenceMessageEntity?>(null) }
+    var messageToEdit by remember { mutableStateOf<OccurrenceMessageEntity?>(null) }
     var expanded by remember(occ.id, occ.status, occ.title) {
         mutableStateOf(isArchived || isDesarquivada)
     }
@@ -906,11 +941,12 @@ fun OccurrenceCard(
                             isRead = msg.isRead,
                             isVotingClosed = msg.isVotingClosed,
                             isBudget = msg.isBudget,
+                            isEdited = msg.isEdited,
                             attachments = msgWithAtts.attachments,
-                            isSelected = selectedMessage?.id == msg.id,
+                            isSelected = selectedMessage?.id == msg.id || messageWithOptions?.id == msg.id,
                             onLongClick = {
-                                if (selectedMessage?.id == msg.id) onMessageSelected(null)
-                                else onMessageSelected(msg)
+                                messageWithOptions = msg
+                                onMessageSelected(msg)
                             },
                             currentUser = currentUser,
                             onToggleVote = onToggleVote,
@@ -1064,6 +1100,146 @@ fun OccurrenceCard(
             onConfirm = { text, uris ->
                 onReply(text, true, false, uris, true)
                 showBudgetDialog = false
+            }
+        )
+    }
+
+    if (messageWithOptions != null) {
+        val msg = messageWithOptions!!
+        val isSender = msg.senderUsername.equals(currentUser.username, ignoreCase = true) ||
+                (msg.senderUsername.equals("admin", ignoreCase = true) && currentUser.role == "ADMIN")
+        val creationTime = if (msg.timestamp > 0) msg.timestamp else msg.id
+        val elapsed = System.currentTimeMillis() - creationTime
+        val isWithin20Min = elapsed in 0..(20 * 60 * 1000L)
+        val canEdit = isSender && isWithin20Min && occ.status != "FINALIZADA" && occ.status != "ARQUIVADA" && msg.senderUsername != "SISTEMA"
+        val canDelete = (currentUser.role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true) || isSender) && msg.senderUsername != "SISTEMA"
+
+        val remainingMinutes = if (isWithin20Min) {
+            val rem = ((20 * 60 * 1000L) - elapsed) / 60000L + 1
+            if (rem > 20) 20 else rem
+        } else 0
+
+        AlertDialog(
+            onDismissRequest = {
+                messageWithOptions = null
+                onMessageSelected(null)
+            },
+            title = { Text("Opções da Mensagem") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = msg.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (isSender) {
+                        if (isWithin20Min) {
+                            Text(
+                                text = "⏱️ Tempo restante para editar: $remainingMinutes min",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            Text(
+                                text = "⚠️ O limite de 20 minutos para edição expirou.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.Red
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (canEdit) {
+                        Button(
+                            onClick = {
+                                messageToEdit = msg
+                                messageWithOptions = null
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Editar Mensagem")
+                        }
+                    }
+                    if (canDelete) {
+                        OutlinedButton(
+                            onClick = {
+                                onDeleteMessage(msg.id)
+                                messageWithOptions = null
+                                onMessageSelected(null)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Excluir Mensagem")
+                        }
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        messageWithOptions = null
+                        onMessageSelected(null)
+                    }
+                ) { Text("Cancelar") }
+            }
+        )
+    }
+
+    if (messageToEdit != null) {
+        var editedText by remember(messageToEdit) { mutableStateOf(messageToEdit!!.text) }
+        AlertDialog(
+            onDismissRequest = {
+                messageToEdit = null
+                onMessageSelected(null)
+            },
+            title = { Text("Editar Mensagem") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Você pode editar sua mensagem dentro de até 20 minutos do envio.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                    OutlinedTextField(
+                        value = editedText,
+                        onValueChange = { editedText = it },
+                        label = { Text("Mensagem") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (editedText.isNotBlank()) {
+                            onEditMessage?.invoke(messageToEdit!!.id, editedText.trim())
+                            messageToEdit = null
+                            onMessageSelected(null)
+                        }
+                    },
+                    enabled = editedText.isNotBlank()
+                ) {
+                    Text("Salvar")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        messageToEdit = null
+                        onMessageSelected(null)
+                    }
+                ) {
+                    Text("Cancelar")
+                }
             }
         )
     }

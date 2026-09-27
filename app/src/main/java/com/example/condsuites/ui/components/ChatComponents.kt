@@ -498,6 +498,7 @@ fun BudgetVotingCard(
     isSindicoOnly: Boolean = false,
     isRead: Boolean = false,
     isVotingClosed: Boolean = false,
+    isEdited: Boolean = false,
     attachments: List<AttachmentWithVotes> = emptyList(),
     isSelected: Boolean = false,
     onLongClick: () -> Unit = {},
@@ -553,7 +554,7 @@ fun BudgetVotingCard(
                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                                 Text(
-                                    text = "Enviado por ${author.uppercase()} • $date",
+                                    text = "Enviado por ${author.uppercase()} • $date${if (isEdited) " (editada)" else ""}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                                 )
@@ -864,6 +865,7 @@ fun ChatBubble(
     isRead: Boolean = false,
     isVotingClosed: Boolean = false,
     isBudget: Boolean = false,
+    isEdited: Boolean = false,
     attachments: List<AttachmentWithVotes> = emptyList(),
     isSelected: Boolean = false,
     onLongClick: () -> Unit = {},
@@ -891,6 +893,7 @@ fun ChatBubble(
                 isSindicoOnly = isSindicoOnly,
                 isRead = isRead,
                 isVotingClosed = isVotingClosed,
+                isEdited = isEdited,
                 attachments = attachments,
                 isSelected = isSelected,
                 onLongClick = onLongClick,
@@ -1041,6 +1044,15 @@ fun ChatBubble(
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.End)) {
+                        if (isEdited) {
+                            Text(
+                                "(editada)",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontStyle = FontStyle.Italic,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(top = 2.dp, end = 4.dp)
+                            )
+                        }
                         Text(
                             date, 
                             style = MaterialTheme.typography.labelSmall, 
