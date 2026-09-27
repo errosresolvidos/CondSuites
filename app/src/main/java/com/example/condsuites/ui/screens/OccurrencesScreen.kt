@@ -297,8 +297,28 @@ fun OccurrencesScreen(
                                 },
                                 onDeleteMessage = { msgId ->
                                     scope.launch {
-                                        dao.deleteOccurrenceMessage(msgId)
-                                        FirestoreSyncManager.syncOccurrenceMessage(OccurrenceMessageEntity(id = msgId), isDelete = true)
+                                        val targetMsg = dao.getOccurrenceMessageById(msgId)
+                                        if (targetMsg != null) {
+                                            val isAdmin = currentUser.role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true)
+                                            val isSender = targetMsg.senderUsername.equals(currentUser.username, ignoreCase = true) ||
+                                                    (targetMsg.senderUsername.equals("admin", ignoreCase = true) && currentUser.role == "ADMIN")
+                                            val creationTime = if (targetMsg.timestamp > 0) targetMsg.timestamp else targetMsg.id
+                                            val elapsed = System.currentTimeMillis() - creationTime
+                                            val isWithin20Min = elapsed in 0..(20 * 60 * 1000L)
+
+                                            if (isAdmin || (isSender && isWithin20Min)) {
+                                                dao.deleteOccurrenceMessage(msgId)
+                                                FirestoreSyncManager.syncOccurrenceMessage(OccurrenceMessageEntity(id = msgId), isDelete = true)
+                                            } else {
+                                                withContext(Dispatchers.Main) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Não é mais possível remover esta mensagem pois o prazo de 20 minutos expirou.",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                            }
+                                        }
                                     }
                                 },
                                 onEditMessage = { msgId, newText ->
@@ -1106,13 +1126,14 @@ fun OccurrenceCard(
 
     if (messageWithOptions != null) {
         val msg = messageWithOptions!!
+        val isAdmin = currentUser.role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true)
         val isSender = msg.senderUsername.equals(currentUser.username, ignoreCase = true) ||
                 (msg.senderUsername.equals("admin", ignoreCase = true) && currentUser.role == "ADMIN")
         val creationTime = if (msg.timestamp > 0) msg.timestamp else msg.id
         val elapsed = System.currentTimeMillis() - creationTime
         val isWithin20Min = elapsed in 0..(20 * 60 * 1000L)
         val canEdit = isSender && isWithin20Min && occ.status != "FINALIZADA" && occ.status != "ARQUIVADA" && msg.senderUsername != "SISTEMA"
-        val canDelete = (currentUser.role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true) || isSender) && msg.senderUsername != "SISTEMA"
+        val canDelete = (isAdmin || (isSender && isWithin20Min)) && msg.senderUsername != "SISTEMA"
 
         val remainingMinutes = if (isWithin20Min) {
             val rem = ((20 * 60 * 1000L) - elapsed) / 60000L + 1
@@ -1133,19 +1154,38 @@ fun OccurrenceCard(
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (isSender) {
+                    if (isSender && !isAdmin) {
                         if (isWithin20Min) {
                             Text(
-                                text = "⏱️ Tempo restante para editar: $remainingMinutes min",
+                                text = "⏱️ Tempo restante para editar ou remover: $remainingMinutes min",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
                         } else {
-                            Text(
-                                text = "⚠️ O limite de 20 minutos para edição expirou.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.Red
-                            )
+                            Surface(
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = "Não é mais possível editar ou remover esta mensagem pois o prazo de 20 minutos expirou.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                 }

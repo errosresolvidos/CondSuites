@@ -38,6 +38,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -63,6 +64,52 @@ import java.util.Locale
 import java.util.TimeZone
 
 @Composable
+fun StorageSourceBadge(
+    filePath: String,
+    modifier: Modifier = Modifier
+) {
+    val isCloudinary = filePath.contains("cloudinary.com", ignoreCase = true)
+    val isFirebase = filePath.contains("firebasestorage", ignoreCase = true) || filePath.contains("firebase", ignoreCase = true)
+
+    val sourceName = when {
+        isCloudinary -> "Cloudinary"
+        isFirebase -> "Firebase"
+        else -> "Cloudinary"
+    }
+
+    val badgeBg = if (isCloudinary) Color(0xFF3448C5) else Color(0xFFFF8F00)
+    val icon = if (isCloudinary) Icons.Default.CloudUpload else Icons.Default.Storage
+
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = badgeBg.copy(alpha = 0.15f),
+        border = BorderStroke(0.5.dp, badgeBg.copy(alpha = 0.5f)),
+        modifier = modifier.padding(vertical = 2.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = sourceName,
+                tint = badgeBg,
+                modifier = Modifier.size(11.dp)
+            )
+            Spacer(Modifier.width(3.dp))
+            Text(
+                text = sourceName,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = badgeBg
+            )
+        }
+    }
+}
+
+@Composable
 fun VideoThumbnailImage(
     filePath: String,
     modifier: Modifier = Modifier,
@@ -72,9 +119,10 @@ fun VideoThumbnailImage(
     var bitmap by remember(filePath) { mutableStateOf<Bitmap?>(null) }
     var isLoading by remember(filePath) { mutableStateOf(true) }
 
-    val isCloudinaryVideo = filePath.contains("cloudinary.com") && filePath.contains("/video/upload/")
+    val isCloudinaryVideo = filePath.contains("cloudinary.com") && (filePath.contains("/video/") || isVideoFile("", filePath))
     val posterUrl = if (isCloudinaryVideo) {
-        filePath.replace(Regex("\\.(mp4|mov|mkv|webm|avi|3gp|flv|wmv|m4v)($|\\?)", RegexOption.IGNORE_CASE), ".jpg$2")
+        filePath.replace(Regex("/(image|auto)/upload/"), "/video/upload/")
+            .replace(Regex("\\.(mp4|mov|mkv|webm|avi|3gp|flv|wmv|m4v)($|\\?)", RegexOption.IGNORE_CASE), ".jpg$2")
     } else null
 
     LaunchedEffect(filePath) {
@@ -311,12 +359,15 @@ fun FullScreenVideoDialog(
                     )
                 }
 
-                Text(
-                    text = "Vídeo",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Vídeo ",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                    StorageSourceBadge(filePath = videoPath)
+                }
 
                 IconButton(onClick = {
                     try { videoViewRef?.stopPlayback() } catch (_: Exception) {}
@@ -697,6 +748,7 @@ fun BudgetVotingCard(
                                             style = MaterialTheme.typography.labelSmall,
                                             color = Color.Gray
                                         )
+                                        StorageSourceBadge(filePath = att.filePath)
                                     }
 
                                     val canDownload = currentUser.role == "Conselheiro Fiscal" || currentUser.role == "Síndico" || currentUser.role == "ADMIN"
@@ -987,6 +1039,10 @@ fun ChatBubble(
                                                     .background(Color.Black.copy(alpha = 0.05f)),
                                                 contentScale = ContentScale.Crop
                                             )
+                                            StorageSourceBadge(
+                                                filePath = att.filePath,
+                                                modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                                            )
                                         } else if (isVid) {
                                             VideoThumbnailImage(
                                                 filePath = att.filePath,
@@ -994,6 +1050,10 @@ fun ChatBubble(
                                                     .fillMaxWidth(0.7f)
                                                     .height(180.dp)
                                                     .background(Color.Black)
+                                            )
+                                            StorageSourceBadge(
+                                                filePath = att.filePath,
+                                                modifier = Modifier.padding(start = 8.dp, top = 4.dp)
                                             )
                                         }
 
@@ -1246,6 +1306,15 @@ fun FullScreenImageDialog(filePath: String, onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit
             )
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StorageSourceBadge(filePath = filePath)
+            }
             
             IconButton(
                 onClick = onDismiss,
