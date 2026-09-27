@@ -118,3 +118,46 @@ data class OccurrenceLogEntity(
     val action: String = "",
     val timestamp: Long = System.currentTimeMillis()
 )
+
+fun canUserSeeOccurrence(occ: OccurrenceEntity, currentUser: UserEntity): Boolean {
+    val role = currentUser.role
+    if (occ.type == "CONSELHO") {
+        return role == "Síndico" || role == "Conselheiro Fiscal" || role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true)
+    }
+    if (role == "Zelador" || role == "Porteiro") {
+        return occ.type == "GERAL" && occ.status != "ARQUIVADA"
+    }
+    return true
+}
+
+fun canUserSeeMessage(msg: OccurrenceMessageEntity, currentUser: UserEntity): Boolean {
+    val role = currentUser.role
+    val username = currentUser.username
+    if (msg.senderUsername.equals(username, ignoreCase = true)) {
+        return true
+    }
+    if (role == "ADMIN" || username.equals("admin", ignoreCase = true)) {
+        return true
+    }
+    if (msg.isSindicoOnly) {
+        return role == "Síndico"
+    }
+    if (msg.isCouncilOnly || msg.isBudget) {
+        return role == "Síndico" || role == "Conselheiro Fiscal"
+    }
+    return true
+}
+
+fun isMessageUnreadForUser(
+    msg: OccurrenceMessageEntity,
+    occ: OccurrenceEntity,
+    currentUser: UserEntity
+): Boolean {
+    if (msg.isRead) return false
+    if (msg.senderUsername.equals(currentUser.username, ignoreCase = true)) return false
+    if (msg.senderUsername == "admin" && currentUser.role == "ADMIN") return false
+    if (!canUserSeeOccurrence(occ, currentUser)) return false
+    if (!canUserSeeMessage(msg, currentUser)) return false
+    return true
+}
+

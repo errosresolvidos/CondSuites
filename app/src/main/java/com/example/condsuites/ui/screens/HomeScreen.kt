@@ -23,6 +23,7 @@ import com.example.condsuites.data.model.OccurrenceEntity
 import com.example.condsuites.data.model.OccurrenceMessageEntity
 import com.example.condsuites.data.model.OccurrenceAttachmentEntity
 import com.example.condsuites.data.model.UserEntity
+import com.example.condsuites.data.model.canUserSeeOccurrence
 import com.example.condsuites.service.FirestoreSyncManager
 import com.example.condsuites.service.NotificationUtils.sendFcmPushNotification
 import com.example.condsuites.ui.components.SummaryCard
@@ -45,11 +46,7 @@ fun HomeScreen(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope, onNa
     val context = LocalContext.current
     
     val filteredOccurrences = occurrences.filter { 
-        if (currentUser.role == "Zelador") {
-            it.occurrence.type == "GERAL"
-        } else {
-            true
-        }
+        canUserSeeOccurrence(it.occurrence, currentUser)
     }
     
     val openOccurrences = filteredOccurrences.filter { it.occurrence.status == "ABERTA" }

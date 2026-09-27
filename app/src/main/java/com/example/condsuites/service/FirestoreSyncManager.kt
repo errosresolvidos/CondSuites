@@ -19,6 +19,8 @@ import com.example.condsuites.data.model.ServiceDescriptionEntity
 import com.example.condsuites.data.model.ServiceOrderEntity
 import com.example.condsuites.data.model.UnitEntity
 import com.example.condsuites.data.model.UserEntity
+import com.example.condsuites.data.model.canUserSeeOccurrence
+import com.example.condsuites.data.model.canUserSeeMessage
 import com.example.condsuites.data.preferences.UserPreferences
 import com.example.condsuites.utils.getUnitIdForApartment
 import com.google.firebase.firestore.FirebaseFirestore
@@ -323,7 +325,10 @@ object FirestoreSyncManager {
                                     val parentOcc = parentDoc.toObject(OccurrenceEntity::class.java)
                                     if (parentOcc != null) dao.insertOccurrenceReplace(parentOcc)
                                 }
-                                dao.insertOccurrenceMessageReplace(msg)
+                                val existing = dao.getOccurrenceMessageById(msg.id)
+                                val isRead = (existing?.isRead == true) || msg.isRead
+                                val msgToInsert = msg.copy(isRead = isRead)
+                                dao.insertOccurrenceMessageReplace(msgToInsert)
                             } catch (e: Exception) {
                                 android.util.Log.e("FIRESTORE_SYNC", "Error inserting message ${msg.id}: ${e.message}")
                             }
@@ -606,19 +611,23 @@ object FirestoreSyncManager {
                                             touchParentOccurrence(dao, msg.occurrenceId)
                                             if (!isFirstMessagePass.get()) {
                                                 val currentUsername = UserPreferences.getCurrentSessionUser(context)
-                                                if (msg.senderUsername != currentUsername) {
+                                                if (currentUsername.isNotEmpty() && msg.senderUsername != currentUsername) {
+                                                    val currentUser = dao.getUserByUsername(currentUsername)
                                                     val occ = dao.getOccurrenceEntityById(msg.occurrenceId)
-                                                    val occTitle = occ?.title ?: "Ocorrência"
-                                                    NotificationUtils.showAppNotification(
-                                                        context,
-                                                        "Nova mensagem em Ocorrências",
-                                                        "$occTitle - ${msg.senderUsername}: ${msg.text}",
-                                                        msg.occurrenceId.toInt()
-                                                    )
+                                                    if (occ != null && currentUser != null && canUserSeeOccurrence(occ, currentUser) && canUserSeeMessage(msg, currentUser)) {
+                                                        val occTitle = occ.title.ifBlank { "Ocorrência" }
+                                                        NotificationUtils.showAppNotification(
+                                                            context,
+                                                            "Nova mensagem em Ocorrências",
+                                                            "$occTitle - ${msg.senderUsername}: ${msg.text}",
+                                                            msg.occurrenceId.toInt()
+                                                        )
+                                                    }
                                                 }
                                             }
                                         } else if (existing != msg) {
-                                            val msgToUpdate = if (existing.isRead) msg.copy(isRead = true) else msg
+                                            val isRead = existing.isRead || msg.isRead
+                                            val msgToUpdate = msg.copy(isRead = isRead)
                                             dao.updateOccurrenceMessage(msgToUpdate)
                                             touchParentOccurrence(dao, msg.occurrenceId)
                                         }

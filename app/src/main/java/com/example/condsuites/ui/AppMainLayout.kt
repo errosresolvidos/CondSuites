@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.condsuites.data.dao.AppDao
 import com.example.condsuites.data.model.UserEntity
+import com.example.condsuites.data.model.isMessageUnreadForUser
 import com.example.condsuites.ui.components.*
 import com.example.condsuites.ui.navigation.NavigationItem
 import com.example.condsuites.ui.navigation.Screen
@@ -96,7 +97,9 @@ fun AppMainLayout(
 
     val unreadOccurrencesCount = remember(occurrencesWithMessages, currentUser) {
         occurrencesWithMessages.count { item ->
-            item.messages.any { !it.message.isRead && it.message.senderUsername != currentUser.username }
+            item.messages.any { msgWithAtt ->
+                isMessageUnreadForUser(msgWithAtt.message, item.occurrence, currentUser)
+            }
         }
     }
 

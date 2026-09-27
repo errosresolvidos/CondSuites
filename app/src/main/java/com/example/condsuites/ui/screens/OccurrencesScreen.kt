@@ -242,6 +242,7 @@ fun OccurrencesScreen(
                                 },
                                 onUpdateStatus = { newStatus ->
                                     scope.launch(Dispatchers.IO) {
+                                        val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
                                         val updatedOcc = if (newStatus == "DESARQUIVAR") {
                                             val currentTitle = occWithMsgs.occurrence.title
                                             val newTitle = if (!currentTitle.endsWith(" (Desarquivada)")) {
@@ -255,6 +256,25 @@ fun OccurrencesScreen(
                                         dao.updateOccurrence(updatedOcc)
                                         FirestoreSyncManager.syncOccurrence(updatedOcc)
 
+                                        val sysMsgText = when (newStatus) {
+                                            "ARQUIVADA" -> "Ocorrência arquivada por ${currentUser.username}."
+                                            "DESARQUIVAR" -> "Ocorrência desarquivada por ${currentUser.username}."
+                                            "FINALIZADA" -> "Ocorrência finalizada por ${currentUser.username}."
+                                            "ABERTA" -> "Ocorrência reaberta por ${currentUser.username}."
+                                            else -> "Status alterado para $newStatus por ${currentUser.username}."
+                                        }
+
+                                        val sysMsg = OccurrenceMessageEntity(
+                                            id = System.currentTimeMillis(),
+                                            occurrenceId = occWithMsgs.occurrence.id,
+                                            senderUsername = "SISTEMA",
+                                            text = sysMsgText,
+                                            date = dateStr
+                                        )
+                                        dao.insertOccurrenceMessageReplace(sysMsg)
+                                        FirestoreSyncManager.syncOccurrenceMessage(sysMsg)
+                                        FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
+
                                         val actionName = if (newStatus == "DESARQUIVAR") "STATUS_DESARQUIVADA" else "STATUS_$newStatus"
                                         dao.insertOccurrenceLog(OccurrenceLogEntity(occurrenceId = occWithMsgs.occurrence.id, username = currentUser.username, action = actionName))
                                     }
@@ -263,7 +283,9 @@ fun OccurrencesScreen(
                                     scope.launch {
                                         dao.markOccurrenceMessagesAsRead(occWithMsgs.occurrence.id, currentUser.username)
                                         cancelAppNotification(context, occWithMsgs.occurrence.id.toInt())
-                                        val unreadMsgs = occWithMsgs.messages.map { it.message }.filter { !it.isRead && it.senderUsername != currentUser.username }
+                                        val unreadMsgs = occWithMsgs.messages.map { it.message }.filter {
+                                            isMessageUnreadForUser(it, occWithMsgs.occurrence, currentUser)
+                                        }
                                         unreadMsgs.forEach { msg ->
                                             FirestoreSyncManager.syncOccurrenceMessage(msg.copy(isRead = true))
                                         }
@@ -609,18 +631,25 @@ fun OccurrenceCard(
     onDelete: () -> Unit,
     onEditOccurrence: ((newApartment: String, newTitle: String, newDescription: String) -> Unit)? = null
 ) {
-    var showReplyDialog by remember { mutableStateOf(false) }
-    var showBudgetDialog by remember { mutableStateOf(false) }
-    var showEditHeaderDialog by remember { mutableStateOf(false) }
-    var expanded by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isCompact) {
-        if (isCompact) expanded = false
-    }
-
     val occ = occWithMsgs.occurrence
     val messages = occWithMsgs.messages.sortedBy { it.message.id }
     val isCondo = occ.apartment == "CONDOMÍNIO"
+
+    val isArchived = occ.status == "ARQUIVADA"
+    val isDesarquivada = occ.title.contains("Desarquivada", ignoreCase = true)
+
+    var showReplyDialog by remember { mutableStateOf(false) }
+    var showBudgetDialog by remember { mutableStateOf(false) }
+    var showEditHeaderDialog by remember { mutableStateOf(false) }
+    var expanded by remember(occ.id, occ.status, occ.title) {
+        mutableStateOf(isArchived || isDesarquivada)
+    }
+
+    LaunchedEffect(isCompact, isArchived, isDesarquivada) {
+        if (isCompact && !isArchived && !isDesarquivada) {
+            expanded = false
+        }
+    }
 
     val isAdmin = currentUser.role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true)
     val creatorUsername = occ.createdByUsername.ifBlank { messages.firstOrNull()?.message?.senderUsername ?: "" }
@@ -632,8 +661,10 @@ fun OccurrenceCard(
     val isWithinTwoHours = (System.currentTimeMillis() - creationMillis) <= (2 * 60 * 60 * 1000L)
     val canEditOccurrence = onEditOccurrence != null && (isAdmin || (isCreator && isWithinTwoHours))
 
-    LaunchedEffect(expanded, messages.size) {
-        if (expanded) {
+    val unreadCount = messages.count { isMessageUnreadForUser(it.message, occ, currentUser) }
+
+    LaunchedEffect(expanded, messages.size, unreadCount) {
+        if (expanded && unreadCount > 0) {
             onMarkAsRead()
         }
     }
@@ -795,7 +826,6 @@ fun OccurrenceCard(
                             fontWeight = FontWeight.Medium
                         )
                     }
-                    val unreadCount = messages.count { !it.message.isRead && it.message.senderUsername != currentUser.username }
                     if (!expanded && unreadCount > 0) {
                         Spacer(Modifier.width(8.dp))
                         Surface(
