@@ -120,7 +120,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = CL0000000000000000000001 /* Build configuration list for PBXNativeTarget "iosApp" */;
 			buildPhases = (
-				PH0000000000000000000004 /* Compile Kotlin Framework */,
 				PH0000000000000000000001 /* Sources */,
 				PH0000000000000000000002 /* Frameworks */,
 				PH0000000000000000000003 /* Resources */,
@@ -178,26 +177,7 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
-/* Begin PBXShellScriptBuildPhase section */
-		PH0000000000000000000004 /* Compile Kotlin Framework */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Compile Kotlin Framework";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "if [ \"YES\" = \"$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED\" ]; then\n  echo \"Skipping Gradle build task invocation since OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED is set\"\n  exit 0\nfi\ncd \"$SRCROOT/..\"\n./gradlew :shared:embedAndSignAppleFrameworkForXcode || true\n";
-		};
-/* End PBXShellScriptBuildPhase section */
+
 
 /* Begin PBXSourcesBuildPhase section */
 		PH0000000000000000000001 /* Sources */ = {

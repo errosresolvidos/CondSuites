@@ -80,7 +80,14 @@ struct ReportDetailView<Content: View>: View {
     let title: String
     let icon: String
     let color: Color
-    @ViewBuilder let content: () -> Content
+    let content: Content
+
+    init(title: String, icon: String, color: Color, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.icon = icon
+        self.color = color
+        self.content = content()
+    }
 
     var body: some View {
         ScrollView {
@@ -106,7 +113,7 @@ struct ReportDetailView<Content: View>: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Indicadores Principais")
                         .font(.headline)
-                    content()
+                    content
                 }
                 .padding()
                 .background(Color(.systemBackground))
