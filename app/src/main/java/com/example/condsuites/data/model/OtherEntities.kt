@@ -26,6 +26,27 @@ data class UnitEntity(
     @get:PropertyName("notes") @set:PropertyName("notes") var notes: String = ""
 )
 
+enum class UnitStatus {
+    CADASTRADO,
+    INCOMPLETO,
+    PENDENTE
+}
+
+val UnitEntity.status: UnitStatus
+    get() {
+        if (ownerName.isBlank()) return UnitStatus.PENDENTE
+        val hasPhone = phone.isNotBlank()
+        val hasEmail = email.isNotBlank()
+        return when {
+            hasPhone && hasEmail -> UnitStatus.CADASTRADO
+            hasPhone || hasEmail -> UnitStatus.INCOMPLETO
+            else -> UnitStatus.PENDENTE
+        }
+    }
+
+val UnitEntity.isComplete: Boolean
+    get() = status == UnitStatus.CADASTRADO
+
 @Entity(tableName = "overtime")
 data class OvertimeEntity(
     @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: Long = System.currentTimeMillis(),
@@ -91,3 +112,16 @@ data class ProcessStatusEntity(@PrimaryKey val status: String)
 data class OccurrenceTypeEntity(
     @PrimaryKey @get:PropertyName("type") @set:PropertyName("type") var type: String = ""
 )
+
+@Entity(tableName = "audit_logs")
+data class AuditLogEntity(
+    @PrimaryKey(autoGenerate = true) @get:PropertyName("id") @set:PropertyName("id") var id: Long = 0,
+    @get:PropertyName("timestamp") @set:PropertyName("timestamp") var timestamp: Long = System.currentTimeMillis(),
+    @get:PropertyName("formattedDate") @set:PropertyName("formattedDate") var formattedDate: String = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()).format(Date()),
+    @get:PropertyName("username") @set:PropertyName("username") var username: String = "",
+    @get:PropertyName("userRole") @set:PropertyName("userRole") var userRole: String = "",
+    @get:PropertyName("action") @set:PropertyName("action") var action: String = "",
+    @get:PropertyName("category") @set:PropertyName("category") var category: String = "GERAL",
+    @get:PropertyName("details") @set:PropertyName("details") var details: String = ""
+)
+

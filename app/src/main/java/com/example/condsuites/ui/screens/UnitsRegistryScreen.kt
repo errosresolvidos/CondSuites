@@ -31,7 +31,10 @@ import com.example.condsuites.data.model.DelinquentWithProgress
 import com.example.condsuites.data.model.DelinquencyHistoryEntity
 import com.example.condsuites.data.model.LawsuitWithProgress
 import com.example.condsuites.data.model.UnitEntity
+import com.example.condsuites.data.model.UnitStatus
 import com.example.condsuites.data.model.UserEntity
+import com.example.condsuites.data.model.isComplete
+import com.example.condsuites.data.model.status
 import com.example.condsuites.service.FirestoreSyncManager
 import com.example.condsuites.ui.components.ActiveDebtorBanner
 import com.example.condsuites.ui.components.ArchivedProcessBanner
@@ -94,7 +97,9 @@ fun UnitsRegistryScreen(
     context: Context,
     currentUser: UserEntity? = null,
     onNavigate: (Screen) -> Unit = {},
-    onNavigateToAgreements: (apartment: String, tab: Int) -> Unit = { _, _ -> }
+    onNavigateToAgreements: (apartment: String, tab: Int) -> Unit = { _, _ -> },
+    showDashboard: Boolean = false,
+    onDismissDashboard: () -> Unit = {}
 ) {
     val isAdmin = remember(currentUser) {
         currentUser == null || currentUser.role.equals("ADMIN", ignoreCase = true) || currentUser.username.equals("admin", ignoreCase = true)
@@ -109,15 +114,8 @@ fun UnitsRegistryScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(top = 12.dp, start = 16.dp, end = 16.dp, bottom = 0.dp)
+                    modifier = Modifier.padding(top = 4.dp, start = 16.dp, end = 16.dp, bottom = 0.dp)
                 ) {
-                    Text(
-                        "Cadastro & Gestão das Unidades",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Spacer(Modifier.height(8.dp))
                     TabRow(
                         selectedTabIndex = selectedTabIndex,
                         containerColor = Color.Transparent,
@@ -148,7 +146,9 @@ fun UnitsRegistryScreen(
                         context = context,
                         currentUser = currentUser,
                         onNavigate = onNavigate,
-                        onNavigateToAgreements = onNavigateToAgreements
+                        onNavigateToAgreements = onNavigateToAgreements,
+                        showDashboard = showDashboard,
+                        onDismissDashboard = onDismissDashboard
                     )
                 }
                 1 -> {
@@ -169,7 +169,9 @@ fun UnitsListContent(
     context: Context,
     currentUser: UserEntity? = null,
     onNavigate: (Screen) -> Unit = {},
-    onNavigateToAgreements: (apartment: String, tab: Int) -> Unit = { _, _ -> }
+    onNavigateToAgreements: (apartment: String, tab: Int) -> Unit = { _, _ -> },
+    showDashboard: Boolean = false,
+    onDismissDashboard: () -> Unit = {}
 ) {
     val units by dao.getAllUnits().collectAsState(initial = emptyList())
     val delinquents by dao.getDelinquents().collectAsState(initial = emptyList())
@@ -267,8 +269,9 @@ fun UnitsListContent(
             val isDebtor = hasDelinquent || hasAgreement || hasLawsuit
 
             val matchesStatus = when (selectedStatusFilter) {
-                "Cadastrados" -> unit.ownerName.isNotBlank()
-                "Pendentes" -> unit.ownerName.isBlank()
+                "Cadastrados" -> unit.status == UnitStatus.CADASTRADO
+                "Incompletos" -> unit.status == UnitStatus.INCOMPLETO
+                "Pendentes" -> unit.status == UnitStatus.PENDENTE
                 "Devedoras" -> canSeeDebtors && isDebtor
                 else -> true
             }
@@ -288,219 +291,231 @@ fun UnitsListContent(
     }
 
     val totalCount = units.size
-    val registeredCount = units.count { it.ownerName.isNotBlank() }
-    val pendingCount = totalCount - registeredCount
+    val registeredCount = units.count { it.status == UnitStatus.CADASTRADO }
+    val incompleteCount = units.count { it.status == UnitStatus.INCOMPLETO }
+    val pendingCount = units.count { it.status == UnitStatus.PENDENTE }
     val occupancyRate = if (totalCount > 0) (registeredCount * 100 / totalCount) else 0
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(
-                        "Cadastro & Consulta de Unidades",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp)
+        ) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = searchText,
+                        onValueChange = { searchText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Buscar por número, morador, fone...") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        trailingIcon = {
+                            if (searchText.isNotEmpty()) {
+                                IconButton(onClick = { searchText = "" }) { Icon(Icons.Default.Clear, null) }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
                     )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                        FilterChip(
+                            selected = selectedStatusFilter == "Todos",
+                            onClick = { selectedStatusFilter = "Todos" },
+                            label = { Text("Todos", style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = selectedStatusFilter == "Cadastrados",
+                            onClick = { selectedStatusFilter = "Cadastrados" },
+                            label = { Text("Cadastrados", style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = selectedStatusFilter == "Incompletos",
+                            onClick = { selectedStatusFilter = "Incompletos" },
+                            label = { Text("Incompletos", style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = selectedStatusFilter == "Pendentes",
+                            onClick = { selectedStatusFilter = "Pendentes" },
+                            label = { Text("Pendentes", style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (canSeeDebtors) {
+                            FilterChip(
+                                selected = selectedStatusFilter == "Devedoras",
+                                onClick = { selectedStatusFilter = "Devedoras" },
+                                label = { Text("Devedoras", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFD32F2F),
+                                    selectedLabelColor = Color.White
+                                ),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    var expandedFloorMenu by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = expandedFloorMenu,
+                        onExpandedChange = { expandedFloorMenu = !expandedFloorMenu },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = selectedFloorFilter,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Filtrar por Andar") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedFloorMenu) },
+                            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expandedFloorMenu,
+                            onDismissRequest = { expandedFloorMenu = false }
+                        ) {
+                            floorOptions.forEach { fl ->
+                                DropdownMenuItem(
+                                    text = { Text(fl) },
+                                    onClick = {
+                                        selectedFloorFilter = fl
+                                        expandedFloorMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Text(
+                    "Unidades Encontradas (${filteredUnits.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            if (filteredUnits.isEmpty()) {
+                item {
+                    Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            "Nenhuma unidade encontrada para os filtros selecionados.",
+                            color = Color.Gray,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            } else {
+                items(filteredUnits.sortedWith(compareBy({ it.floor }, { naturalSortApartments(it.apartment) }))) { unit ->
+                    val aptClean = unit.apartment.trim()
+
+                    // Active
+                    val delMatch = delinquents.find { it.delinquent.apartment.trim().equals(aptClean, ignoreCase = true) }
+                    val aggMatch = agreements.find { it.agreement.apartment.trim().equals(aptClean, ignoreCase = true) }
+                    val activeLawMatch = lawsuits.find {
+                        it.lawsuit.apartment.trim().equals(aptClean, ignoreCase = true) &&
+                        it.lawsuit.status != "Encerrado" && it.lawsuit.status != "Arquivado" && it.lawsuit.status != "Finalizado"
+                    }
+
+                    // Archived
+                    val hasArchivedDel = archivedDelinquents.any { it.delinquent.apartment.trim().equals(aptClean, ignoreCase = true) }
+                    val hasArchivedAgg = archivedAgreements.any { it.agreement.apartment.trim().equals(aptClean, ignoreCase = true) }
+                    val archivedLawMatch = lawsuits.find {
+                        it.lawsuit.apartment.trim().equals(aptClean, ignoreCase = true) &&
+                        (it.lawsuit.status == "Encerrado" || it.lawsuit.status == "Arquivado" || it.lawsuit.status == "Finalizado")
+                    }
+                    val unitDelHistory = delinquencyHistory.filter { it.apartment.trim().equals(aptClean, ignoreCase = true) }
+
+                    UnitCard(
+                        unit = unit,
+                        delinquent = delMatch,
+                        agreement = aggMatch,
+                        lawsuit = activeLawMatch,
+                        hasArchivedDelinquent = hasArchivedDel,
+                        hasArchivedAgreement = hasArchivedAgg,
+                        archivedLawsuit = archivedLawMatch,
+                        delinquencyHistory = unitDelHistory,
+                        canSeeDebtors = canSeeDebtors,
+                        isAdmin = isAdmin,
+                        onEdit = { unitToEdit = unit },
+                        onDelete = { unitToDelete = unit },
+                        onNavigate = onNavigate,
+                        onNavigateToAgreements = onNavigateToAgreements,
+                        context = context
+                    )
+                }
+            }
+
+            // Espaço no final para evitar que o botão + flutuante sobreponha o último card
+            item {
+                Spacer(Modifier.height(88.dp))
+            }
+        }
+
+        // Botão + Flutuante (Nova Unidade)
+        FloatingActionButton(
+            onClick = { showAddDialog = true },
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(20.dp)
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "Nova Unidade")
+        }
+    }
+
+    if (showDashboard) {
+        AlertDialog(
+            onDismissRequest = onDismissDashboard,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Dashboard,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text("Dashboard das Unidades", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Text(
-                        "Estrutura: 12 unidades por andar (Do 2º ao 12º andar)",
+                        "Resumo do preenchimento e situação das unidades:",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
                     )
-                    Spacer(Modifier.height(12.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        UnitMetricCard("Total Unidades", totalCount.toString(), Icons.Default.Apartment, Modifier.weight(1f))
-                        UnitMetricCard("Cadastradas", registeredCount.toString(), Icons.Default.CheckCircle, Modifier.weight(1f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        UnitMetricCard("Total", totalCount.toString(), Icons.Default.Apartment, Modifier.weight(1f))
+                        UnitMetricCard("Cadastras", registeredCount.toString(), Icons.Default.CheckCircle, Modifier.weight(1f))
+                        UnitMetricCard("Incompletas", incompleteCount.toString(), Icons.Default.Warning, Modifier.weight(1f))
                         UnitMetricCard("Pendentes", pendingCount.toString(), Icons.Default.NotificationImportant, Modifier.weight(1f))
                         UnitMetricCard("Preenchimento", "$occupancyRate%", Icons.Default.Analytics, Modifier.weight(1f))
                     }
                 }
-            }
-        }
-
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = searchText,
-                    onValueChange = { searchText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Buscar por apto (ex: 201), nome, fone, e-mail...") },
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
-                    trailingIcon = {
-                        if (searchText.isNotEmpty()) {
-                            IconButton(onClick = { searchText = "" }) { Icon(Icons.Default.Clear, null) }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
-                    FilterChip(
-                        selected = selectedStatusFilter == "Todos",
-                        onClick = { selectedStatusFilter = "Todos" },
-                        label = { Text("Todos", style = MaterialTheme.typography.labelSmall) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    FilterChip(
-                        selected = selectedStatusFilter == "Cadastrados",
-                        onClick = { selectedStatusFilter = "Cadastrados" },
-                        label = { Text("Cadastrados", style = MaterialTheme.typography.labelSmall) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    FilterChip(
-                        selected = selectedStatusFilter == "Pendentes",
-                        onClick = { selectedStatusFilter = "Pendentes" },
-                        label = { Text("Pendentes", style = MaterialTheme.typography.labelSmall) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (canSeeDebtors) {
-                        FilterChip(
-                            selected = selectedStatusFilter == "Devedoras",
-                            onClick = { selectedStatusFilter = "Devedoras" },
-                            label = { Text("Devedoras", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFFD32F2F),
-                                selectedLabelColor = Color.White
-                            ),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-
-                var expandedFloorMenu by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(
-                    expanded = expandedFloorMenu,
-                    onExpandedChange = { expandedFloorMenu = !expandedFloorMenu },
-                    modifier = Modifier.fillMaxWidth()
+            },
+            confirmButton = {
+                Button(
+                    onClick = onDismissDashboard,
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    OutlinedTextField(
-                        value = selectedFloorFilter,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Filtrar por Andar") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedFloorMenu) },
-                        modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = expandedFloorMenu,
-                        onDismissRequest = { expandedFloorMenu = false }
-                    ) {
-                        floorOptions.forEach { fl ->
-                            DropdownMenuItem(
-                                text = { Text(fl) },
-                                onClick = {
-                                    selectedFloorFilter = fl
-                                    expandedFloorMenu = false
-                                }
-                            )
-                        }
-                    }
+                    Text("Fechar")
                 }
             }
-        }
-
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Button(
-                        onClick = { showAddDialog = true },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Nova Unidade", style = MaterialTheme.typography.labelMedium)
-                    }
-
-                    Button(
-                        onClick = { showPrintPreviewDialog = true },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Icon(Icons.Default.Print, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Imprimir PDF", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
-        }
-
-        item {
-            Text(
-                "Unidades Encontradas (${filteredUnits.size})",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        if (filteredUnits.isEmpty()) {
-            item {
-                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                    Text(
-                        "Nenhuma unidade encontrada para os filtros selecionados.",
-                        color = Color.Gray,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
-        } else {
-            items(filteredUnits.sortedWith(compareBy({ it.floor }, { naturalSortApartments(it.apartment) }))) { unit ->
-                val aptClean = unit.apartment.trim()
-
-                // Active
-                val delMatch = delinquents.find { it.delinquent.apartment.trim().equals(aptClean, ignoreCase = true) }
-                val aggMatch = agreements.find { it.agreement.apartment.trim().equals(aptClean, ignoreCase = true) }
-                val activeLawMatch = lawsuits.find {
-                    it.lawsuit.apartment.trim().equals(aptClean, ignoreCase = true) &&
-                    it.lawsuit.status != "Encerrado" && it.lawsuit.status != "Arquivado" && it.lawsuit.status != "Finalizado"
-                }
-
-                // Archived
-                val hasArchivedDel = archivedDelinquents.any { it.delinquent.apartment.trim().equals(aptClean, ignoreCase = true) }
-                val hasArchivedAgg = archivedAgreements.any { it.agreement.apartment.trim().equals(aptClean, ignoreCase = true) }
-                val archivedLawMatch = lawsuits.find {
-                    it.lawsuit.apartment.trim().equals(aptClean, ignoreCase = true) &&
-                    (it.lawsuit.status == "Encerrado" || it.lawsuit.status == "Arquivado" || it.lawsuit.status == "Finalizado")
-                }
-                val unitDelHistory = delinquencyHistory.filter { it.apartment.trim().equals(aptClean, ignoreCase = true) }
-
-                UnitCard(
-                    unit = unit,
-                    delinquent = delMatch,
-                    agreement = aggMatch,
-                    lawsuit = activeLawMatch,
-                    hasArchivedDelinquent = hasArchivedDel,
-                    hasArchivedAgreement = hasArchivedAgg,
-                    archivedLawsuit = archivedLawMatch,
-                    delinquencyHistory = unitDelHistory,
-                    canSeeDebtors = canSeeDebtors,
-                    isAdmin = isAdmin,
-                    onEdit = { unitToEdit = unit },
-                    onDelete = { unitToDelete = unit },
-                    onNavigate = onNavigate,
-                    onNavigateToAgreements = onNavigateToAgreements,
-                    context = context
-                )
-            }
-        }
+        )
     }
 
     if (unitToEdit != null) {
@@ -600,8 +615,9 @@ fun UnitsExportImportTab(
 
     val units by dao.getAllUnits().collectAsState(initial = emptyList())
     val totalCount = units.size
-    val registeredCount = units.count { it.ownerName.isNotBlank() }
-    val pendingCount = totalCount - registeredCount
+    val registeredCount = units.count { it.status == UnitStatus.CADASTRADO }
+    val incompleteCount = units.count { it.status == UnitStatus.INCOMPLETO }
+    val pendingCount = units.count { it.status == UnitStatus.PENDENTE }
 
     val exportUnitsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -681,9 +697,10 @@ fun UnitsExportImportTab(
                         color = Color.Gray
                     )
                     Spacer(Modifier.height(12.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        UnitMetricCard("Total Unidades", totalCount.toString(), Icons.Default.Apartment, Modifier.weight(1f))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        UnitMetricCard("Total", totalCount.toString(), Icons.Default.Apartment, Modifier.weight(1f))
                         UnitMetricCard("Cadastradas", registeredCount.toString(), Icons.Default.CheckCircle, Modifier.weight(1f))
+                        UnitMetricCard("Incompletas", incompleteCount.toString(), Icons.Default.Warning, Modifier.weight(1f))
                         UnitMetricCard("Pendentes", pendingCount.toString(), Icons.Default.NotificationImportant, Modifier.weight(1f))
                     }
                 }
@@ -873,9 +890,11 @@ fun UnitCard(
     onNavigateToAgreements: (apartment: String, tab: Int) -> Unit = { _, _ -> },
     context: Context
 ) {
-    val isRegistered = unit.ownerName.isNotBlank()
-    val statusColor = if (isRegistered) Color(0xFF2E7D32) else Color(0xFFE65100)
-    val statusText = if (isRegistered) "CADASTRADO" else "PENDENTE"
+    val (statusText, statusColor) = when (unit.status) {
+        UnitStatus.CADASTRADO -> "CADASTRADO" to Color(0xFF2E7D32)
+        UnitStatus.INCOMPLETO -> "INCOMPLETO" to Color(0xFFF57C00)
+        UnitStatus.PENDENTE -> "PENDENTE" to Color(0xFFD32F2F)
+    }
 
     val isDebtor = delinquent != null || agreement != null || lawsuit != null
     val hasArchived = hasArchivedDelinquent || hasArchivedAgreement || archivedLawsuit != null || delinquencyHistory.isNotEmpty()
@@ -918,11 +937,12 @@ fun UnitCard(
             }
 
             Spacer(Modifier.height(8.dp))
+            val hasOwner = unit.ownerName.isNotBlank()
             Text(
-                text = if (isRegistered) unit.ownerName else "Morador / Proprietário não cadastrado",
+                text = if (hasOwner) unit.ownerName else "Morador / Proprietário não cadastrado",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
-                color = if (isRegistered) MaterialTheme.colorScheme.onSurface else Color.Gray
+                color = if (hasOwner) MaterialTheme.colorScheme.onSurface else Color.Gray
             )
 
             Spacer(Modifier.height(4.dp))

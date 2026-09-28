@@ -6,6 +6,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -20,12 +22,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.condsuites.data.dao.AppDao
+import com.example.condsuites.data.model.AuditLogEntity
 import com.example.condsuites.data.model.FloorEntity
 import com.example.condsuites.data.model.OccurrenceTypeEntity
 import com.example.condsuites.data.model.ProcessStatusEntity
 import com.example.condsuites.data.model.ServiceDescriptionEntity
 import com.example.condsuites.data.model.UserEntity
 import com.example.condsuites.service.FirestoreSyncManager
+import com.example.condsuites.utils.AuditLogger
 import com.example.condsuites.utils.ExcelHelper
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -102,6 +106,12 @@ fun SettingsScreen(
                             text = { Text("Backup & Sistema", fontWeight = FontWeight.Bold) },
                             icon = { Icon(Icons.Default.Storage, contentDescription = null) }
                         )
+                        Tab(
+                            selected = selectedTabIndex == 3,
+                            onClick = { selectedTabIndex = 3 },
+                            text = { Text("Auditoria", fontWeight = FontWeight.Bold) },
+                            icon = { Icon(Icons.Default.Security, contentDescription = null) }
+                        )
                     }
                 }
             }
@@ -157,16 +167,16 @@ fun SettingsScreen(
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             item {
-                                ManageFloorsSection(dao = dao, scope = scope)
+                                ManageFloorsSection(dao = dao, currentUser = currentUser, scope = scope)
                             }
                             item {
-                                ManageServiceDescriptionsSection(dao = dao, scope = scope)
+                                ManageServiceDescriptionsSection(dao = dao, currentUser = currentUser, scope = scope)
                             }
                             item {
-                                ManageProcessStatusesSection(dao = dao, scope = scope)
+                                ManageProcessStatusesSection(dao = dao, currentUser = currentUser, scope = scope)
                             }
                             item {
-                                ManageOccurrenceTypesSection(dao = dao, scope = scope)
+                                ManageOccurrenceTypesSection(dao = dao, currentUser = currentUser, scope = scope)
                             }
                         }
                     }
@@ -186,12 +196,15 @@ fun SettingsScreen(
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             item {
-                                BackupRestoreSection(dao = dao, context = context, scope = scope)
+                                BackupRestoreSection(dao = dao, currentUser = currentUser, context = context, scope = scope)
                             }
                             item {
-                                UnitsBackupSection(dao = dao, context = context, scope = scope)
+                                UnitsBackupSection(dao = dao, currentUser = currentUser, context = context, scope = scope)
                             }
                         }
+                    }
+                    3 -> {
+                        AuditLogsSection(dao = dao, currentUser = currentUser, scope = scope)
                     }
                 }
             }
@@ -321,6 +334,7 @@ fun ManageUsersSection(
     if (showUserDialog) {
         UserFormDialog(
             user = editingUser,
+            currentUser = currentUser,
             dao = dao,
             scope = scope,
             onDismiss = {
@@ -356,6 +370,13 @@ fun ManageUsersSection(
                         scope.launch(Dispatchers.IO) {
                             dao.deleteUser(user.id)
                             FirestoreSyncManager.syncUser(user, isDelete = true)
+                            AuditLogger.log(
+                                dao = dao,
+                                user = currentUser,
+                                action = "Excluir Usuário",
+                                category = "USUÁRIOS",
+                                details = "Usuário '${user.username}' (${user.role}) foi excluído pelo administrador '${currentUser.username}'"
+                            )
                             withContext(Dispatchers.Main) {
                                 Toast.makeText(context, "Usuário '${user.username}' excluído com sucesso.", Toast.LENGTH_SHORT).show()
                             }
@@ -506,6 +527,7 @@ fun UserItemRow(
 @Composable
 fun UserFormDialog(
     user: UserEntity?,
+    currentUser: UserEntity,
     dao: AppDao,
     scope: CoroutineScope,
     onDismiss: () -> Unit,
@@ -642,6 +664,14 @@ fun UserFormDialog(
                         dao.insertUser(userToSave)
                         FirestoreSyncManager.syncUser(userToSave)
 
+                        AuditLogger.log(
+                            dao = dao,
+                            user = currentUser,
+                            action = if (user == null) "Cadastro de Usuário" else "Edição de Usuário",
+                            category = "USUÁRIOS",
+                            details = "Usuário '$uName' ($uRole) foi ${if (user == null) "cadastrado" else "atualizado"} pelo admin '${currentUser.username}'"
+                        )
+
                         withContext(Dispatchers.Main) {
                             Toast.makeText(
                                 context,
@@ -665,7 +695,7 @@ fun UserFormDialog(
 }
 
 @Composable
-fun BackupRestoreSection(dao: AppDao, context: Context, scope: CoroutineScope) {
+fun BackupRestoreSection(dao: AppDao, currentUser: UserEntity, context: Context, scope: CoroutineScope) {
     var isLoading by remember { mutableStateOf(false) }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -673,6 +703,15 @@ fun BackupRestoreSection(dao: AppDao, context: Context, scope: CoroutineScope) {
             isLoading = true
             scope.launch(Dispatchers.IO) {
                 val success = ExcelHelper.importDatabase(context, dao, uri)
+                if (success) {
+                    AuditLogger.log(
+                        dao = dao,
+                        user = currentUser,
+                        action = "Importação de Backup Completo",
+                        category = "BACKUP",
+                        details = "Backup completo do sistema restaurado a partir de planilha Excel"
+                    )
+                }
                 withContext(Dispatchers.Main) {
                     isLoading = false
                     Toast.makeText(context, if (success) "Dados importados com sucesso!" else "Falha ao importar dados.", Toast.LENGTH_LONG).show()
@@ -686,6 +725,15 @@ fun BackupRestoreSection(dao: AppDao, context: Context, scope: CoroutineScope) {
             isLoading = true
             scope.launch(Dispatchers.IO) {
                 val success = ExcelHelper.exportDatabase(context, dao, uri)
+                if (success) {
+                    AuditLogger.log(
+                        dao = dao,
+                        user = currentUser,
+                        action = "Exportação de Backup Completo",
+                        category = "BACKUP",
+                        details = "Backup completo do sistema gerado em arquivo Excel"
+                    )
+                }
                 withContext(Dispatchers.Main) {
                     isLoading = false
                     Toast.makeText(context, if (success) "Exportado com sucesso!" else "Falha na exportação.", Toast.LENGTH_SHORT).show()
@@ -785,7 +833,7 @@ fun BackupRestoreSection(dao: AppDao, context: Context, scope: CoroutineScope) {
 }
 
 @Composable
-fun UnitsBackupSection(dao: AppDao, context: Context, scope: CoroutineScope) {
+fun UnitsBackupSection(dao: AppDao, currentUser: UserEntity, context: Context, scope: CoroutineScope) {
     var isLoading by remember { mutableStateOf(false) }
     var importResultText by remember { mutableStateOf<String?>(null) }
 
@@ -796,6 +844,15 @@ fun UnitsBackupSection(dao: AppDao, context: Context, scope: CoroutineScope) {
             isLoading = true
             scope.launch(Dispatchers.IO) {
                 val success = ExcelHelper.exportUnitsTable(context, dao, uri)
+                if (success) {
+                    AuditLogger.log(
+                        dao = dao,
+                        user = currentUser,
+                        action = "Exportar Tabela de Unidades",
+                        category = "UNIDADES",
+                        details = "Planilha com dados das unidades exportada para Excel"
+                    )
+                }
                 withContext(Dispatchers.Main) {
                     isLoading = false
                     Toast.makeText(
@@ -834,6 +891,13 @@ fun UnitsBackupSection(dao: AppDao, context: Context, scope: CoroutineScope) {
             isLoading = true
             scope.launch(Dispatchers.IO) {
                 val resultMsg = ExcelHelper.importUnitsTable(context, dao, uri)
+                AuditLogger.log(
+                    dao = dao,
+                    user = currentUser,
+                    action = "Importar Tabela de Unidades",
+                    category = "UNIDADES",
+                    details = "Importação de planilha de unidades concluída"
+                )
                 withContext(Dispatchers.Main) {
                     isLoading = false
                     importResultText = resultMsg
@@ -969,7 +1033,7 @@ fun UnitsBackupSection(dao: AppDao, context: Context, scope: CoroutineScope) {
 }
 
 @Composable
-fun ManageFloorsSection(dao: AppDao, scope: CoroutineScope) {
+fun ManageFloorsSection(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope) {
     val floors by dao.getFloors().collectAsState(initial = emptyList())
     var newFloorText by remember { mutableStateOf("") }
 
@@ -994,6 +1058,13 @@ fun ManageFloorsSection(dao: AppDao, scope: CoroutineScope) {
                             val fl = newFloorText.trim()
                             scope.launch(Dispatchers.IO) {
                                 dao.insertFloor(FloorEntity(floor = fl))
+                                AuditLogger.log(
+                                    dao = dao,
+                                    user = currentUser,
+                                    action = "Adicionar Andar",
+                                    category = "PARÂMETROS",
+                                    details = "Andar '$fl' adicionado aos parâmetros do sistema"
+                                )
                             }
                             newFloorText = ""
                         }
@@ -1017,6 +1088,13 @@ fun ManageFloorsSection(dao: AppDao, scope: CoroutineScope) {
                         onClick = {
                             scope.launch(Dispatchers.IO) {
                                 dao.deleteFloor(fl.floor)
+                                AuditLogger.log(
+                                    dao = dao,
+                                    user = currentUser,
+                                    action = "Excluir Andar",
+                                    category = "PARÂMETROS",
+                                    details = "Andar '${fl.floor}' removido dos parâmetros"
+                                )
                             }
                         },
                         modifier = Modifier.size(28.dp)
@@ -1030,7 +1108,7 @@ fun ManageFloorsSection(dao: AppDao, scope: CoroutineScope) {
 }
 
 @Composable
-fun ManageServiceDescriptionsSection(dao: AppDao, scope: CoroutineScope) {
+fun ManageServiceDescriptionsSection(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope) {
     val descs by dao.getServiceDescriptions().collectAsState(initial = emptyList())
     var newDescText by remember { mutableStateOf("") }
 
@@ -1057,6 +1135,13 @@ fun ManageServiceDescriptionsSection(dao: AppDao, scope: CoroutineScope) {
                                 val entity = ServiceDescriptionEntity(description = d)
                                 dao.insertServiceDescription(entity)
                                 FirestoreSyncManager.syncServiceDescription(entity)
+                                AuditLogger.log(
+                                    dao = dao,
+                                    user = currentUser,
+                                    action = "Adicionar Serviço",
+                                    category = "PARÂMETROS",
+                                    details = "Descrição de serviço '$d' cadastrada"
+                                )
                             }
                             newDescText = ""
                         }
@@ -1081,6 +1166,13 @@ fun ManageServiceDescriptionsSection(dao: AppDao, scope: CoroutineScope) {
                             scope.launch(Dispatchers.IO) {
                                 dao.deleteServiceDescription(d.description)
                                 FirestoreSyncManager.syncServiceDescription(d, isDelete = true)
+                                AuditLogger.log(
+                                    dao = dao,
+                                    user = currentUser,
+                                    action = "Excluir Serviço",
+                                    category = "PARÂMETROS",
+                                    details = "Descrição de serviço '${d.description}' removida"
+                                )
                             }
                         },
                         modifier = Modifier.size(28.dp)
@@ -1094,7 +1186,7 @@ fun ManageServiceDescriptionsSection(dao: AppDao, scope: CoroutineScope) {
 }
 
 @Composable
-fun ManageProcessStatusesSection(dao: AppDao, scope: CoroutineScope) {
+fun ManageProcessStatusesSection(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope) {
     val statuses by dao.getProcessStatuses().collectAsState(initial = emptyList())
     var newStatusText by remember { mutableStateOf("") }
 
@@ -1119,6 +1211,13 @@ fun ManageProcessStatusesSection(dao: AppDao, scope: CoroutineScope) {
                             val st = newStatusText.trim()
                             scope.launch(Dispatchers.IO) {
                                 dao.insertProcessStatus(ProcessStatusEntity(status = st))
+                                AuditLogger.log(
+                                    dao = dao,
+                                    user = currentUser,
+                                    action = "Adicionar Status de Processo",
+                                    category = "PARÂMETROS",
+                                    details = "Status de processo '$st' adicionado"
+                                )
                             }
                             newStatusText = ""
                         }
@@ -1142,6 +1241,13 @@ fun ManageProcessStatusesSection(dao: AppDao, scope: CoroutineScope) {
                         onClick = {
                             scope.launch(Dispatchers.IO) {
                                 dao.deleteProcessStatus(st.status)
+                                AuditLogger.log(
+                                    dao = dao,
+                                    user = currentUser,
+                                    action = "Excluir Status de Processo",
+                                    category = "PARÂMETROS",
+                                    details = "Status de processo '${st.status}' removido"
+                                )
                             }
                         },
                         modifier = Modifier.size(28.dp)
@@ -1155,7 +1261,7 @@ fun ManageProcessStatusesSection(dao: AppDao, scope: CoroutineScope) {
 }
 
 @Composable
-fun ManageOccurrenceTypesSection(dao: AppDao, scope: CoroutineScope) {
+fun ManageOccurrenceTypesSection(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope) {
     val types by dao.getOccurrenceTypes().collectAsState(initial = emptyList())
     var newTypeText by remember { mutableStateOf("") }
 
@@ -1182,6 +1288,13 @@ fun ManageOccurrenceTypesSection(dao: AppDao, scope: CoroutineScope) {
                                 val entity = OccurrenceTypeEntity(type = tp)
                                 dao.insertOccurrenceType(entity)
                                 FirestoreSyncManager.syncOccurrenceType(entity)
+                                AuditLogger.log(
+                                    dao = dao,
+                                    user = currentUser,
+                                    action = "Adicionar Tipo de Ocorrência",
+                                    category = "PARÂMETROS",
+                                    details = "Tipo de ocorrência '$tp' cadastrado"
+                                )
                             }
                             newTypeText = ""
                         }
@@ -1206,6 +1319,13 @@ fun ManageOccurrenceTypesSection(dao: AppDao, scope: CoroutineScope) {
                             scope.launch(Dispatchers.IO) {
                                 dao.deleteOccurrenceType(tp.type)
                                 FirestoreSyncManager.syncOccurrenceType(tp, isDelete = true)
+                                AuditLogger.log(
+                                    dao = dao,
+                                    user = currentUser,
+                                    action = "Excluir Tipo de Ocorrência",
+                                    category = "PARÂMETROS",
+                                    details = "Tipo de ocorrência '${tp.type}' removido"
+                                )
                             }
                         },
                         modifier = Modifier.size(28.dp)
@@ -1217,3 +1337,609 @@ fun ManageOccurrenceTypesSection(dao: AppDao, scope: CoroutineScope) {
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun AuditLogsSection(
+    dao: AppDao,
+    currentUser: UserEntity,
+    scope: CoroutineScope
+) {
+    val context = LocalContext.current
+    val auditLogs by dao.getAllAuditLogs().collectAsState(initial = emptyList())
+    var storageInfo by remember { mutableStateOf<AuditLogger.LogStorageInfo?>(null) }
+    var isCalculatingStorage by remember { mutableStateOf(false) }
+
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("TODOS") }
+
+    var showClearAuditDialog by remember { mutableStateOf(false) }
+    var showClearAllLogsDialog by remember { mutableStateOf(false) }
+    var showManualLogDialog by remember { mutableStateOf(false) }
+
+    val categories = listOf("TODOS", "USUÁRIOS", "SISTEMA", "FINANCEIRO", "OCORRÊNCIAS", "BACKUP", "PARÂMETROS", "SESSÃO", "UNIDADES")
+
+    val refreshStorage = {
+        isCalculatingStorage = true
+        scope.launch {
+            storageInfo = AuditLogger.calculateLogStorageInfo(context, dao)
+            isCalculatingStorage = false
+        }
+    }
+
+    LaunchedEffect(auditLogs) {
+        refreshStorage()
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val success = AuditLogger.exportAuditLogsToExcel(context, dao, uri)
+                Toast.makeText(
+                    context,
+                    if (success) "Logs de auditoria exportados com sucesso!" else "Falha ao exportar logs.",
+                    Toast.LENGTH_SHORT
+                ).show()
+                if (success) {
+                    AuditLogger.log(
+                        dao = dao,
+                        user = currentUser,
+                        action = "Exportação de Logs",
+                        category = "BACKUP",
+                        details = "Logs de auditoria exportados para Excel"
+                    )
+                }
+            }
+        }
+    }
+
+    val filteredLogs = remember(auditLogs, searchQuery, selectedCategory) {
+        auditLogs.filter { log ->
+            val matchesCategory = selectedCategory == "TODOS" || log.category.equals(selectedCategory, ignoreCase = true)
+            val matchesSearch = searchQuery.isBlank() ||
+                    log.username.contains(searchQuery, ignoreCase = true) ||
+                    log.action.contains(searchQuery, ignoreCase = true) ||
+                    log.details.contains(searchQuery, ignoreCase = true) ||
+                    log.category.contains(searchQuery, ignoreCase = true) ||
+                    log.formattedDate.contains(searchQuery, ignoreCase = true)
+            matchesCategory && matchesSearch
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Armazenamento & Espaço dos Logs",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        IconButton(onClick = { refreshStorage() }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Recalcular espaço", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Monitore a quantidade de registros e o consumo de espaço em disco ocupado pelos dados de log e auditoria no banco de dados.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    "Espaço Total Utilizado em Logs",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    storageInfo?.formattedTotalSize ?: "Calculando...",
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary,
+                                shape = RoundedCornerShape(20.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Security,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "${storageInfo?.auditLogCount ?: 0} Regs Auditoria",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(Modifier.padding(10.dp)) {
+                                Text("Auditoria", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.height(2.dp))
+                                Text(storageInfo?.formattedAuditSize ?: "0 B", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                Text("${storageInfo?.auditLogCount ?: 0} registros", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(Modifier.padding(10.dp)) {
+                                Text("Notificações", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                                Spacer(Modifier.height(2.dp))
+                                Text(storageInfo?.formattedNotificationSize ?: "0 B", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                Text("${storageInfo?.notificationLogCount ?: 0} registros", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(Modifier.padding(10.dp)) {
+                                Text("Ocorrências", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.tertiary)
+                                Spacer(Modifier.height(2.dp))
+                                Text(storageInfo?.formattedOccurrenceSize ?: "0 B", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                Text("${storageInfo?.occurrenceLogCount ?: 0} registros", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Button(
+                            onClick = {
+                                val time = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                                exportLauncher.launch("Logs_Auditoria_CondSuites_$time.xlsx")
+                            },
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Exportar Logs (Excel)", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        OutlinedButton(
+                            onClick = { showManualLogDialog = true },
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.AddComment, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Novo Log Manual", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        OutlinedButton(
+                            onClick = { showClearAuditDialog = true },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Limpar Logs Auditoria", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        OutlinedButton(
+                            onClick = { showClearAllLogsDialog = true },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.CleaningServices, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Limpar Todos os Logs", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "Histórico de Auditoria do Sistema",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Registros de atividades, alterações de segurança, gerenciamento de contas e operações de backup.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        label = { Text("Buscar log por ação, usuário, detalhes ou data...") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Limpar")
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(categories.size) { idx ->
+                            val cat = categories[idx]
+                            FilterChip(
+                                selected = selectedCategory == cat,
+                                onClick = { selectedCategory = cat },
+                                label = { Text(cat, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    if (filteredLogs.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(48.dp), tint = Color.LightGray)
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    if (searchQuery.isBlank() && selectedCategory == "TODOS")
+                                        "Nenhum registro de auditoria armazenado."
+                                    else
+                                        "Nenhum log encontrado para os filtros selecionados.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.Gray
+                                )
+                                if (auditLogs.isEmpty()) {
+                                    Spacer(Modifier.height(12.dp))
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                AuditLogger.log(
+                                                    dao = dao,
+                                                    user = currentUser,
+                                                    action = "Inicialização de Logs",
+                                                    category = "SISTEMA",
+                                                    details = "Sistema de auditoria iniciado pelo administrador '${currentUser.username}'"
+                                                )
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text("Gerar Log de Inicialização")
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        filteredLogs.forEach { logItem ->
+                            AuditLogItemRow(
+                                logItem = logItem,
+                                onDelete = {
+                                    scope.launch(Dispatchers.IO) {
+                                        dao.deleteAuditLog(logItem.id)
+                                        FirestoreSyncManager.syncAuditLog(logItem, isDelete = true)
+                                    }
+                                }
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showClearAuditDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearAuditDialog = false },
+            title = { Text("Limpar Logs de Auditoria") },
+            text = { Text("Tem certeza que deseja apagar todos os registros de auditoria? Esta ação irá liberar o espaço de armazenamento dos logs de auditoria no dispositivo.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearAuditDialog = false
+                        scope.launch(Dispatchers.IO) {
+                            dao.clearAuditLogs()
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Logs de auditoria apagados com sucesso.", Toast.LENGTH_SHORT).show()
+                                refreshStorage()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Limpar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAuditDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (showClearAllLogsDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearAllLogsDialog = false },
+            title = { Text("Limpar TODOS os Logs do Sistema") },
+            text = { Text("ATENÇÃO: Esta ação irá apagar completamente os logs de auditoria, histórico de notificações e logs de ocorrências. Deseja prosseguir para liberar o espaço total dos logs?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearAllLogsDialog = false
+                        scope.launch(Dispatchers.IO) {
+                            dao.clearAuditLogs()
+                            dao.clearNotificationLogs()
+                            dao.clearOccurrenceLogs()
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Todos os logs foram apagados com sucesso.", Toast.LENGTH_SHORT).show()
+                                refreshStorage()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                ) {
+                    Text("Apagar Todos")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllLogsDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (showManualLogDialog) {
+        var actionInput by remember { mutableStateOf("") }
+        var categoryInput by remember { mutableStateOf("SISTEMA") }
+        var detailsInput by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showManualLogDialog = false },
+            title = { Text("Registrar Log de Auditoria Manual") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = actionInput,
+                        onValueChange = { actionInput = it },
+                        label = { Text("Título da Ação") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = categoryInput,
+                        onValueChange = { categoryInput = it },
+                        label = { Text("Categoria (ex: SISTEMA, MANUTENÇÃO, VISTORIA)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = detailsInput,
+                        onValueChange = { detailsInput = it },
+                        label = { Text("Detalhes / Observações") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (actionInput.isNotBlank()) {
+                            showManualLogDialog = false
+                            scope.launch {
+                                AuditLogger.log(
+                                    dao = dao,
+                                    user = currentUser,
+                                    action = actionInput.trim(),
+                                    category = categoryInput.trim().uppercase(),
+                                    details = detailsInput.trim()
+                                )
+                                Toast.makeText(context, "Log gravado com sucesso!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                ) {
+                    Text("Salvar Log")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showManualLogDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun AuditLogItemRow(
+    logItem: AuditLogEntity,
+    onDelete: () -> Unit
+) {
+    val categoryColor = when (logItem.category.uppercase()) {
+        "USUÁRIOS" -> Color(0xFF1976D2)
+        "SISTEMA" -> Color(0xFF388E3C)
+        "FINANCEIRO" -> Color(0xFFF57C00)
+        "OCORRÊNCIAS" -> Color(0xFF7B1FA2)
+        "BACKUP" -> Color(0xFF0097A7)
+        "PARÂMETROS" -> Color(0xFFE64A19)
+        "SESSÃO" -> Color(0xFF455A64)
+        "UNIDADES" -> Color(0xFF5D4037)
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        color = categoryColor,
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            logItem.category.uppercase(),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Spacer(Modifier.width(8.dp))
+
+                    Text(
+                        logItem.formattedDate,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                }
+
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Excluir Log",
+                        tint = Color.LightGray,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
+
+            Text(
+                logItem.action,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            if (logItem.details.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    logItem.details,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.DarkGray
+                )
+            }
+
+            Spacer(Modifier.height(6.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.Gray)
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    "${logItem.username} (${logItem.userRole})",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
+            }
+        }
+    }
+}
+

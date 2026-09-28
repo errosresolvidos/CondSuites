@@ -369,6 +369,23 @@ object ExcelHelper {
                 dao.getOccurrenceTypes().first().forEachIndexed { i, item -> sheetOccT.createRow(i+1).createCell(0).setCellValue(item.type) }
                 updateProgress("ConfigOcorrências", 1.0f, 19)
 
+                // Logs de Auditoria
+                try {
+                    val sheetAudit = workbook.createSheet("LogsAuditoria")
+                    val headerAudit = sheetAudit.createRow(0)
+                    listOf("ID", "DataHora", "Usuário", "Perfil", "Categoria", "Ação", "Detalhes").forEachIndexed { i, s -> headerAudit.createCell(i).setCellValue(s) }
+                    dao.getAllAuditLogsList().forEachIndexed { i, item ->
+                        val row = sheetAudit.createRow(i + 1)
+                        row.createCell(0).setCellValue(item.id.toDouble())
+                        row.createCell(1).setCellValue(item.formattedDate)
+                        row.createCell(2).setCellValue(item.username)
+                        row.createCell(3).setCellValue(item.userRole)
+                        row.createCell(4).setCellValue(item.category)
+                        row.createCell(5).setCellValue(item.action)
+                        row.createCell(6).setCellValue(item.details)
+                    }
+                } catch (_: Exception) {}
+
                 val outputStream = context.contentResolver.openOutputStream(uri)
                 if (outputStream != null) {
                     workbook.write(outputStream)
@@ -912,6 +929,33 @@ object ExcelHelper {
                                 FirestoreSyncManager.syncOccurrenceType(entity)
                             }
                         }
+                    }
+                }
+
+                workbook.getSheet("LogsAuditoria")?.let { sheet ->
+                    for (i in 1..sheet.lastRowNum) {
+                        val row = sheet.getRow(i) ?: continue
+                        try {
+                            val id = try { row.getCell(0).numericCellValue.toLong() } catch(_: Exception) { 0L }
+                            val dateStr = try { row.getCell(1).stringCellValue } catch(_: Exception) { "" }
+                            val user = try { row.getCell(2).stringCellValue } catch(_: Exception) { "" }
+                            val role = try { row.getCell(3).stringCellValue } catch(_: Exception) { "" }
+                            val cat = try { row.getCell(4).stringCellValue } catch(_: Exception) { "GERAL" }
+                            val act = try { row.getCell(5).stringCellValue } catch(_: Exception) { "" }
+                            val det = try { row.getCell(6).stringCellValue } catch(_: Exception) { "" }
+
+                            val entity = com.example.condsuites.data.model.AuditLogEntity(
+                                id = id,
+                                formattedDate = dateStr,
+                                username = user,
+                                userRole = role,
+                                category = cat,
+                                action = act,
+                                details = det
+                            )
+                            dao.insertAuditLog(entity)
+                            FirestoreSyncManager.syncAuditLog(entity)
+                        } catch(_: Exception) {}
                     }
                 }
 

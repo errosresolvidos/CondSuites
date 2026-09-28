@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.example.condsuites.data.dao.AppDao
 import com.example.condsuites.data.model.UserEntity
 import com.example.condsuites.data.preferences.UserPreferences
+import com.example.condsuites.utils.AuditLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -143,6 +144,13 @@ fun LoginScreen(dao: AppDao, onLoginSuccess: (UserEntity) -> Unit) {
                                             UserPreferences.saveUsername(context, username)
                                         } catch (_: Exception) {}
                                     }
+                                    AuditLogger.log(
+                                        dao = dao,
+                                        user = user,
+                                        action = "Login de Usuário",
+                                        category = "SESSÃO",
+                                        details = "Usuário '${user.username}' (${user.role}) realizou login no aplicativo"
+                                    )
                                     onLoginSuccess(user)
                                 } else {
                                     errorMessage = "Usuário ou senha incorretos"

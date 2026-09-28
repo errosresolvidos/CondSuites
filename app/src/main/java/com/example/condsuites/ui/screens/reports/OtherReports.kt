@@ -22,6 +22,8 @@ import com.example.condsuites.data.dao.AppDao
 import com.example.condsuites.data.model.DelinquencyHistoryEntity
 import com.example.condsuites.data.model.OccurrenceWithMessages
 import com.example.condsuites.data.model.UnitEntity
+import com.example.condsuites.data.model.UnitStatus
+import com.example.condsuites.data.model.status
 import com.example.condsuites.utils.formatCurrency
 import com.example.condsuites.utils.naturalSortApartments
 import java.text.SimpleDateFormat
@@ -31,8 +33,9 @@ import java.util.Locale
 
 fun generateUnitsHtmlReport(units: List<UnitEntity>): String {
     val total = units.size
-    val registered = units.count { it.ownerName.isNotBlank() }
-    val pending = total - registered
+    val registered = units.count { it.status == UnitStatus.CADASTRADO }
+    val incomplete = units.count { it.status == UnitStatus.INCOMPLETO }
+    val pending = units.count { it.status == UnitStatus.PENDENTE }
     val occupancyRate = if (total > 0) (registered * 100 / total) else 0
     val nowStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
 
@@ -82,6 +85,10 @@ fun generateUnitsHtmlReport(units: List<UnitEntity>): String {
                 <div class="kpi-box">
                     <div class="kpi-title">Cadastradas</div>
                     <div class="kpi-value">$registered</div>
+                </div>
+                <div class="kpi-box">
+                    <div class="kpi-title">Incompletas</div>
+                    <div class="kpi-value">$incomplete</div>
                 </div>
                 <div class="kpi-box">
                     <div class="kpi-title">Pendentes</div>
@@ -149,8 +156,9 @@ fun generateUnitsHtmlReport(units: List<UnitEntity>): String {
 
 fun generateUnitsTextReport(units: List<UnitEntity>): String {
     val total = units.size
-    val registered = units.count { it.ownerName.isNotBlank() }
-    val pending = total - registered
+    val registered = units.count { it.status == UnitStatus.CADASTRADO }
+    val incomplete = units.count { it.status == UnitStatus.INCOMPLETO }
+    val pending = units.count { it.status == UnitStatus.PENDENTE }
     val occupancyRate = if (total > 0) (registered * 100 / total) else 0
     val nowStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
 
@@ -163,7 +171,8 @@ fun generateUnitsTextReport(units: List<UnitEntity>): String {
     sb.append("--------------------------------------------------\n")
     sb.append("📊 RESUMO DE PREENCHIMENTO:\n")
     sb.append(" • Total de Unidades Mapeadas: $total\n")
-    sb.append(" • Unidades com Cadastros Concluídos: $registered\n")
+    sb.append(" • Unidades Cadastradas: $registered\n")
+    sb.append(" • Unidades Incompletas: $incomplete\n")
     sb.append(" • Unidades Pendentes: $pending\n")
     sb.append(" • Taxa de Preenchimento: $occupancyRate%\n")
     sb.append("--------------------------------------------------\n\n")
@@ -172,8 +181,12 @@ fun generateUnitsTextReport(units: List<UnitEntity>): String {
         sb.append("Nenhuma unidade cadastrada.\n")
     } else {
         units.sortedWith(compareBy({ it.floor }, { naturalSortApartments(it.apartment) })).forEachIndexed { idx, unit ->
-            val status = if (unit.ownerName.isNotBlank()) "✅ CADASTRADO" else "⏳ PENDENTE"
-            sb.append("[${idx + 1}] Apto ${unit.apartment} (${unit.floor}º Andar) | $status\n")
+            val statusStr = when (unit.status) {
+                UnitStatus.CADASTRADO -> "✅ CADASTRADO"
+                UnitStatus.INCOMPLETO -> "⚠️ INCOMPLETO"
+                UnitStatus.PENDENTE -> "⏳ PENDENTE"
+            }
+            sb.append("[${idx + 1}] Apto ${unit.apartment} (${unit.floor}º Andar) | $statusStr\n")
             sb.append("    Morador/Proprietário: ${if (unit.ownerName.isNotBlank()) unit.ownerName.uppercase() else "Não informado"}\n")
             sb.append("    Fone: ${unit.phone.ifBlank { "Não informado" }} | E-mail: ${unit.email.ifBlank { "Não informado" }}\n")
             if (unit.notes.isNotBlank()) {

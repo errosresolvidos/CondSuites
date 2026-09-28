@@ -107,6 +107,7 @@ fun AppMainLayout(
 
     var showSwitchUserDialog by remember { mutableStateOf(false) }
     var showExitDialog by remember { mutableStateOf(false) }
+    var showUnitsDashboard by remember { mutableStateOf(false) }
 
     if (showSwitchUserDialog) {
         QuickSwitchUserDialog(
@@ -323,6 +324,14 @@ fun AppMainLayout(
                         }
                     },
                     actions = {
+                        if (currentScreen is Screen.Units || currentScreen is Screen.UnitsRegistry) {
+                            IconButton(onClick = { showUnitsDashboard = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Dashboard,
+                                    contentDescription = "Dashboard Unidades"
+                                )
+                            }
+                        }
                         IconButton(onClick = { currentScreen = Screen.Occurrences }) {
                             BadgedBox(
                                 badge = {
@@ -371,7 +380,9 @@ fun AppMainLayout(
                             targetAgreementsApartment = apt
                             targetAgreementsTab = tab
                             currentScreen = Screen.Agreements
-                        }
+                        },
+                        showDashboard = showUnitsDashboard,
+                        onDismissDashboard = { showUnitsDashboard = false }
                     )
                     Screen.Overtime -> OvertimeManagementScreen(dao, currentUser, scope)
                     Screen.Elevators -> ElevatorsScreen(dao, currentUser, scope)

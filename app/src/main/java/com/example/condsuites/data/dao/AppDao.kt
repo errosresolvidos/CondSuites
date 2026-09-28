@@ -10,6 +10,7 @@ import com.example.condsuites.data.model.FinanceTransactionEntity
 import com.example.condsuites.data.model.AgreementEntity
 import com.example.condsuites.data.model.AgreementProgressEntity
 import com.example.condsuites.data.model.AgreementWithInstallments
+import com.example.condsuites.data.model.AuditLogEntity
 import com.example.condsuites.data.model.ContractEntity
 import com.example.condsuites.data.model.DelinquencyHistoryEntity
 import com.example.condsuites.data.model.DelinquentEntity
@@ -208,4 +209,15 @@ interface AppDao {
     @Query("DELETE FROM finance_transactions WHERE id = :id") suspend fun deleteTransaction(id: Long)
     @Query("SELECT * FROM finance_transactions WHERE relatedId = :relatedId OR groupId LIKE 'OCC_' || :relatedId || '_%' OR description LIKE '%Ocorrência #' || :relatedId || '%'") suspend fun getTransactionsByRelatedId(relatedId: Long): List<FinanceTransactionEntity>
     @Query("DELETE FROM finance_transactions WHERE relatedId = :relatedId OR groupId LIKE 'OCC_' || :relatedId || '_%' OR description LIKE '%Ocorrência #' || :relatedId || '%'") suspend fun deleteTransactionsByRelatedId(relatedId: Long)
+
+    @Query("SELECT * FROM audit_logs ORDER BY id DESC") fun getAllAuditLogs(): Flow<List<AuditLogEntity>>
+    @Query("SELECT * FROM audit_logs ORDER BY id DESC") suspend fun getAllAuditLogsList(): List<AuditLogEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAuditLog(log: AuditLogEntity)
+    @Query("DELETE FROM audit_logs") suspend fun clearAuditLogs()
+    @Query("DELETE FROM audit_logs WHERE id = :id") suspend fun deleteAuditLog(id: Long)
+    @Query("SELECT COUNT(*) FROM audit_logs") suspend fun getAuditLogCount(): Int
+
+    @Query("SELECT * FROM notification_logs ORDER BY id DESC") suspend fun getNotificationLogsList(): List<NotificationLogEntity>
+    @Query("SELECT * FROM occurrence_logs ORDER BY timestamp DESC") suspend fun getAllOccurrenceLogsList(): List<OccurrenceLogEntity>
+    @Query("DELETE FROM occurrence_logs") suspend fun clearOccurrenceLogs()
 }

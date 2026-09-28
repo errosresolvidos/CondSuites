@@ -89,6 +89,37 @@ fun OccurrencesScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var occToDelete by remember { mutableStateOf<OccurrenceEntity?>(null) }
 
+    val unreadCardCounts = remember(occurrences, currentUser) {
+        var zeladorCount = 0
+        var conselhoCount = 0
+        var arquivadasCount = 0
+
+        for (occWithMsgs in occurrences) {
+            val occ = occWithMsgs.occurrence
+            if (!canUserSeeOccurrence(occ, currentUser)) continue
+
+            val hasUnread = occWithMsgs.messages.any { msgWithAtt ->
+                isMessageUnreadForUser(msgWithAtt.message, occ, currentUser)
+            }
+
+            if (hasUnread) {
+                val isArchived = occ.status == "ARQUIVADA"
+                val isConselho = occ.type == "CONSELHO"
+                when {
+                    isArchived -> arquivadasCount++
+                    isConselho -> conselhoCount++
+                    else -> zeladorCount++
+                }
+            }
+        }
+
+        mapOf(
+            "Zelador" to zeladorCount,
+            "Conselho" to conselhoCount,
+            "Arquivadas" to arquivadasCount
+        )
+    }
+
     val filteredOccurrences = occurrences.filter {
         val isArchived = it.occurrence.status == "ARQUIVADA"
         val isTargetConselho = it.occurrence.type == "CONSELHO"
@@ -139,10 +170,30 @@ fun OccurrencesScreen(
                 }
             }
 
-            if (tabs.size > 1) {
+            if (tabs.isNotEmpty()) {
                 SecondaryTabRow(selectedTabIndex = selectedTab) {
                     tabs.forEachIndexed { index, title ->
-                        Tab(selected = selectedTab == index, onClick = { selectedTab = index }, text = { Text(title) })
+                        val unreadCount = unreadCardCounts[title] ?: 0
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(title)
+                                    if (unreadCount > 0) {
+                                        Badge(
+                                            containerColor = MaterialTheme.colorScheme.error,
+                                            contentColor = MaterialTheme.colorScheme.onError
+                                        ) {
+                                            Text("$unreadCount")
+                                        }
+                                    }
+                                }
+                            }
+                        )
                     }
                 }
             }

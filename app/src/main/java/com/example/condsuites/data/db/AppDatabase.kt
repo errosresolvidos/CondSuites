@@ -8,6 +8,7 @@ import com.example.condsuites.data.model.FinanceTransactionEntity
 import com.example.condsuites.data.dao.AppDao
 import com.example.condsuites.data.model.AgreementEntity
 import com.example.condsuites.data.model.AgreementProgressEntity
+import com.example.condsuites.data.model.AuditLogEntity
 import com.example.condsuites.data.model.ContractEntity
 import com.example.condsuites.data.model.DelinquencyHistoryEntity
 import com.example.condsuites.data.model.DelinquentEntity
@@ -40,9 +41,10 @@ import com.example.condsuites.data.model.UserEntity
         OccurrenceLogEntity::class, OccurrenceMessageEntity::class, FloorEntity::class,
         ServiceDescriptionEntity::class, ProcessStatusEntity::class, OccurrenceTypeEntity::class,
         OccurrenceAttachmentEntity::class, OccurrenceAttachmentVoteEntity::class, ContractEntity::class,
-        NotificationLogEntity::class, UnitEntity::class, OvertimeEntity::class, FinanceTransactionEntity::class
+        NotificationLogEntity::class, UnitEntity::class, OvertimeEntity::class, FinanceTransactionEntity::class,
+        AuditLogEntity::class
     ],
-    version = 41,
+    version = 42,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

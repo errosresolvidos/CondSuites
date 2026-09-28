@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.example.condsuites.data.dao.AppDao
 import com.example.condsuites.data.model.AgreementEntity
+import com.example.condsuites.data.model.AuditLogEntity
 import com.example.condsuites.data.model.ContractEntity
 import com.example.condsuites.data.model.DelinquentEntity
 import com.example.condsuites.data.model.DelinquencyHistoryEntity
@@ -291,6 +292,21 @@ object FirestoreSyncManager {
             }
         } catch (e: Exception) {
             android.util.Log.e("FIRESTORE_SYNC", "Error in syncOccurrenceType: ${e.message}")
+        }
+    }
+
+    fun syncAuditLog(auditLog: AuditLogEntity, isDelete: Boolean = false) {
+        try {
+            val db = firestore ?: return
+            val docRef = db.collection("audit_logs").document(auditLog.id.toString())
+            val task = if (isDelete) docRef.delete() else docRef.set(auditLog)
+            task.addOnSuccessListener {
+                android.util.Log.d("FIRESTORE_SYNC", "Successfully synced audit log ${auditLog.id}")
+            }.addOnFailureListener { e ->
+                android.util.Log.e("FIRESTORE_SYNC", "Failed to sync audit log ${auditLog.id}: ${e.message}", e)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FIRESTORE_SYNC", "Error in syncAuditLog: ${e.message}")
         }
     }
 
