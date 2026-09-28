@@ -72,11 +72,25 @@ workflows:
             CODE_SIGNING_REQUIRED=NO \
             AD_HOC_CODE_SIGNING_ALLOWED=YES
 
-          # Empacota o app compilado na estrutura de pacote IPA (.ipa)
+          # Prepara e limpa a pasta Payload para o empacotamento do IPA
+          rm -rf build/ios/ipa/Payload
           mkdir -p build/ios/ipa/Payload
-          cp -R build/ios/iosApp.xcarchive/Products/Applications/iosApp.app build/ios/ipa/Payload/
-          
+
+          # Copia a pasta do aplicativo .app do .xcarchive para a pasta Payload
+          cp -R build/ios/iosApp.xcarchive/Products/Applications/*.app build/ios/ipa/Payload/
+
+          # Verifica se o aplicativo .app foi copiado com sucesso para a pasta Payload
+          APP_PATH=$(find build/ios/ipa/Payload -name "*.app" -maxdepth 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERRO: Nenhum aplicativo .app foi encontrado dentro de build/ios/ipa/Payload!"
+            exit 1
+          fi
+
+          echo "Aplicativo localizado com sucesso em: $APP_PATH"
+
+          # Empacota a pasta Payload no arquivo .ipa final
           cd build/ios/ipa
+          rm -f iosApp.ipa
           zip -q -r iosApp.ipa Payload
           cd ../../..
           
