@@ -78,13 +78,7 @@ workflows:
       email:
         recipients:
           - dev@suaempresa.com
-        notify:
-          on_success: true
-          on_failure: true
 
       app_store_connect:
         auth: integration # Usa a integração configurada da App Store Connect API no Codemagic
         submit_to_testflight: true
-        beta_build_localizations:
-          - language: pt-BR
-            whats_new: "Nova versão compilada via Codemagic CI/CD."
