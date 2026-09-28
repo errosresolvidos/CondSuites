@@ -27,8 +27,8 @@ workflows:
 
       - name: Build KMP Shared Module
         script: |
-          # Compila o framework Kotlin para iOS
-          ./gradlew :shared:assembleXCFramework
+          # Compila o módulo compartilhado Kotlin para todas as plataformas
+          ./gradlew :shared:assemble
 
       - name: Install iOS Dependencies (CocoaPods)
         script: |
