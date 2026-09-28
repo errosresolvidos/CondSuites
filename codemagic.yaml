@@ -7,6 +7,7 @@ workflows:
     environment:
       vars:
         XCODE_WORKSPACE: "iosApp/iosApp.xcworkspace" # Caminho para o .xcworkspace do projeto iOS
+        XCODE_PROJECT: "iosApp/iosApp.xcodeproj"     # Caminho para o .xcodeproj do projeto iOS
         XCODE_SCHEME: "iosApp"                       # Nome do Scheme no Xcode
       java: 17                                       # Versão do Java necessária para o Gradle/KMP
       xcode: latest                                  # Versão do Xcode
@@ -36,15 +37,32 @@ workflows:
           if [ -f "iosApp/Podfile" ]; then
             cd iosApp
             pod install
+            cd ..
           fi
 
       - name: Build iOS IPA for Testing
         script: |
-          # Compila e gera o arquivo .ipa de teste (Debug / Ad-Hoc)
-          xcode-project build-ipa \
-            --workspace "$XCODE_WORKSPACE" \
-            --scheme "$XCODE_SCHEME" \
-            --config Debug
+          # Detecta automaticamente se deve usar .xcworkspace ou .xcodeproj
+          if [ -d "$XCODE_WORKSPACE" ]; then
+            echo "Usando Workspace: $XCODE_WORKSPACE"
+            xcode-project build-ipa \
+              --workspace "$XCODE_WORKSPACE" \
+              --scheme "$XCODE_SCHEME" \
+              --config Debug
+          elif [ -d "$XCODE_PROJECT" ] || [ -f "$XCODE_PROJECT" ]; then
+            echo "Usando Projeto: $XCODE_PROJECT"
+            xcode-project build-ipa \
+              --project "$XCODE_PROJECT" \
+              --scheme "$XCODE_SCHEME" \
+              --config Debug
+          else
+            echo "---------------------------------------------------------"
+            echo "ERRO: Projeto Xcode não encontrado no repositório!"
+            echo "Procurado em: '$XCODE_WORKSPACE' e '$XCODE_PROJECT'"
+            echo "Certifique-se de commitar a pasta 'iosApp' com o projeto iOS."
+            echo "---------------------------------------------------------"
+            exit 1
+          fi
 
     artifacts:
       # Caminhos dos arquivos .ipa gerados para download no Codemagic
