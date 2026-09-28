@@ -87,14 +87,20 @@ fun SettingsScreen(
                         Tab(
                             selected = selectedTabIndex == 0,
                             onClick = { selectedTabIndex = 0 },
-                            text = { Text("Geral", fontWeight = FontWeight.Bold) },
-                            icon = { Icon(Icons.Default.Settings, contentDescription = null) }
+                            text = { Text("Parâmetros", fontWeight = FontWeight.Bold) },
+                            icon = { Icon(Icons.Default.Tune, contentDescription = null) }
                         )
                         Tab(
                             selected = selectedTabIndex == 1,
                             onClick = { selectedTabIndex = 1 },
                             text = { Text("Usuários", fontWeight = FontWeight.Bold) },
                             icon = { Icon(Icons.Default.People, contentDescription = null) }
+                        )
+                        Tab(
+                            selected = selectedTabIndex == 2,
+                            onClick = { selectedTabIndex = 2 },
+                            text = { Text("Backup & Sistema", fontWeight = FontWeight.Bold) },
+                            icon = { Icon(Icons.Default.Storage, contentDescription = null) }
                         )
                     }
                 }
@@ -106,36 +112,85 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            when (if (isAdmin) selectedTabIndex else 0) {
-                0 -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        item {
-                            BackupRestoreSection(dao = dao, context = context, scope = scope)
-                        }
-                        item {
-                            ManageFloorsSection(dao = dao, scope = scope)
-                        }
-                        item {
-                            ManageServiceDescriptionsSection(dao = dao, scope = scope)
-                        }
-                        item {
-                            ManageProcessStatusesSection(dao = dao, scope = scope)
-                        }
-                        item {
-                            ManageOccurrenceTypesSection(dao = dao, scope = scope)
+            if (!isAdmin) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(Modifier.padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        modifier = Modifier.size(48.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column {
+                                        Text(currentUser.username, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                        Text("Perfil: ${currentUser.role}", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                                    }
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                Text("As configurações do sistema e gerenciamento de parâmetros são restritos aos administradores.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            }
                         }
                     }
                 }
-                1 -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        item {
-                            ManageUsersSection(dao = dao, currentUser = currentUser, scope = scope)
+            } else {
+                when (selectedTabIndex) {
+                    0 -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            item {
+                                ManageFloorsSection(dao = dao, scope = scope)
+                            }
+                            item {
+                                ManageServiceDescriptionsSection(dao = dao, scope = scope)
+                            }
+                            item {
+                                ManageProcessStatusesSection(dao = dao, scope = scope)
+                            }
+                            item {
+                                ManageOccurrenceTypesSection(dao = dao, scope = scope)
+                            }
+                        }
+                    }
+                    1 -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            item {
+                                ManageUsersSection(dao = dao, currentUser = currentUser, scope = scope)
+                            }
+                        }
+                    }
+                    2 -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            item {
+                                BackupRestoreSection(dao = dao, context = context, scope = scope)
+                            }
+                            item {
+                                UnitsBackupSection(dao = dao, context = context, scope = scope)
+                            }
                         }
                     }
                 }
@@ -644,27 +699,72 @@ fun BackupRestoreSection(dao: AppDao, context: Context, scope: CoroutineScope) {
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text("Backup & Restauração de Dados", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Backup & Restauração Completa do Sistema",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
             Spacer(Modifier.height(8.dp))
-            Text("Exporte todos os dados do condomínio para uma planilha Excel ou importe de um arquivo existente.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text(
+                "Exporte ou restaure todo o banco de dados do condomínio em formato Excel. O backup inclui Usuários, Unidades, Notificações, Acordos, Processos, Manutenções, Ocorrências e Parâmetros.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        "Tabelas incluídas no Backup Completo:",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text("• Cadastro de Usuários e Perfis", style = MaterialTheme.typography.bodySmall)
+                    Text("• Cadastro de Unidades e Moradores", style = MaterialTheme.typography.bodySmall)
+                    Text("• Notificações de Cobrança, Acordos e Processos Judiciais", style = MaterialTheme.typography.bodySmall)
+                    Text("• Manutenções (Ordens de Serviço e Parcelas)", style = MaterialTheme.typography.bodySmall)
+                    Text("• Ocorrências, Mensagens, Anexos e Logs", style = MaterialTheme.typography.bodySmall)
+                    Text("• Tabelas de Configuração (Andares, Serviços, Status e Tipos)", style = MaterialTheme.typography.bodySmall)
+                }
+            }
 
             Spacer(Modifier.height(16.dp))
 
             if (isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Processando backup do banco...", style = MaterialTheme.typography.bodyMedium)
+                }
             } else {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = {
                             val time = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                            exportLauncher.launch("CondSuites_Backup_$time.xlsx")
+                            exportLauncher.launch("CondSuites_Backup_Completo_$time.xlsx")
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Icon(Icons.Default.Download, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Exportar Excel", style = MaterialTheme.typography.labelMedium)
+                        Text("Exportar Backup Completo", style = MaterialTheme.typography.labelMedium)
                     }
 
                     OutlinedButton(
@@ -676,11 +776,195 @@ fun BackupRestoreSection(dao: AppDao, context: Context, scope: CoroutineScope) {
                     ) {
                         Icon(Icons.Default.Upload, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Importar Excel", style = MaterialTheme.typography.labelMedium)
+                        Text("Importar Backup Completo", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun UnitsBackupSection(dao: AppDao, context: Context, scope: CoroutineScope) {
+    var isLoading by remember { mutableStateOf(false) }
+    var importResultText by remember { mutableStateOf<String?>(null) }
+
+    val exportUnitsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null) {
+            isLoading = true
+            scope.launch(Dispatchers.IO) {
+                val success = ExcelHelper.exportUnitsTable(context, dao, uri)
+                withContext(Dispatchers.Main) {
+                    isLoading = false
+                    Toast.makeText(
+                        context,
+                        if (success) "Unidades exportadas com sucesso!" else "Falha ao exportar unidades.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+    val exportTemplateLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null) {
+            isLoading = true
+            scope.launch(Dispatchers.IO) {
+                val success = ExcelHelper.exportUnitsTemplate(context, uri)
+                withContext(Dispatchers.Main) {
+                    isLoading = false
+                    Toast.makeText(
+                        context,
+                        if (success) "Modelo gerado com sucesso!" else "Falha ao gerar modelo.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+    val importUnitsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            isLoading = true
+            scope.launch(Dispatchers.IO) {
+                val resultMsg = ExcelHelper.importUnitsTable(context, dao, uri)
+                withContext(Dispatchers.Main) {
+                    isLoading = false
+                    importResultText = resultMsg
+                }
+            }
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Apartment, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Exportação & Importação Exclusiva das Unidades",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Exporte ou importe exclusivamente as informações das unidades e moradores em arquivo Excel. Essa operação afeta somente a tabela de cadastro de unidades.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+
+            Spacer(Modifier.height(14.dp))
+
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        "Campos de dados das Unidades:",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text("• Número do Apartamento e Andar", style = MaterialTheme.typography.bodySmall)
+                    Text("• Nome do Proprietário / Morador", style = MaterialTheme.typography.bodySmall)
+                    Text("• Telefone / Celular de Contato", style = MaterialTheme.typography.bodySmall)
+                    Text("• E-mail do Condômino", style = MaterialTheme.typography.bodySmall)
+                    Text("• Observações Gerais do Apto", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            if (isLoading) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Processando planilha de unidades...", style = MaterialTheme.typography.bodyMedium)
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                val time = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                                exportUnitsLauncher.launch("Unidades_CondSuites_$time.xlsx")
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.FileDownload, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Exportar Unidades", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                exportTemplateLauncher.launch("Modelo_Unidades_CondSuites.xlsx")
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Description, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Baixar Modelo", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            importUnitsLauncher.launch(
+                                arrayOf(
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    "application/vnd.ms-excel"
+                                )
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.FileUpload, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Importar Apenas Unidades (Excel)", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+        }
+    }
+
+    if (importResultText != null) {
+        AlertDialog(
+            onDismissRequest = { importResultText = null },
+            title = { Text("Resultado da Importação de Unidades") },
+            text = {
+                Text(
+                    importResultText!!,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(onClick = { importResultText = null }) {
+                    Text("OK")
+                }
+            }
+        )
     }
 }
 

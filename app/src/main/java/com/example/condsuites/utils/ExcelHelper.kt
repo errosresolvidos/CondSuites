@@ -22,6 +22,7 @@ import com.example.condsuites.data.model.ProcessStatusEntity
 import com.example.condsuites.data.model.ServiceDescriptionEntity
 import com.example.condsuites.data.model.ServiceInstallmentEntity
 import com.example.condsuites.data.model.ServiceOrderEntity
+import com.example.condsuites.data.model.UnitEntity
 import com.example.condsuites.service.FirestoreSyncManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -37,7 +38,7 @@ object ExcelHelper {
             try {
                 val workbook = XSSFWorkbook()
                 val tableNames = listOf(
-                    "Usuários", "Acordos", "Parcelas", "AndamentosAcordo", "Notificações", 
+                    "Usuários", "Unidades", "Acordos", "Parcelas", "AndamentosAcordo", "Notificações", 
                     "AndamentosNotif", "Ajuizados", "Andamentos", "Manutenções", 
                     "ParcelasOS", "Ocorrências", "MensagensOcorrência", "AnexosOcorrência",
                     "VotosAnexos", "LogsOcorrência", "Histórico",
@@ -62,6 +63,23 @@ object ExcelHelper {
                     row.createCell(3).setCellValue(item.role)
                 }
                 updateProgress("Usuários", 1.0f, 0)
+
+                // Sheet: Unidades
+                updateProgress("Unidades", 0.1f, 1)
+                val sheetUnits = workbook.createSheet("Unidades")
+                val headerUnits = sheetUnits.createRow(0)
+                listOf("ID", "Apartamento", "Andar", "Proprietário", "Telefone", "E-mail", "Observações").forEachIndexed { i, s -> headerUnits.createCell(i).setCellValue(s) }
+                dao.getAllUnitsList().forEachIndexed { i, item ->
+                    val row = sheetUnits.createRow(i + 1)
+                    row.createCell(0).setCellValue(item.id.toDouble())
+                    row.createCell(1).setCellValue(item.apartment)
+                    row.createCell(2).setCellValue(item.floor.toDouble())
+                    row.createCell(3).setCellValue(item.ownerName)
+                    row.createCell(4).setCellValue(item.phone)
+                    row.createCell(5).setCellValue(item.email)
+                    row.createCell(6).setCellValue(item.notes)
+                }
+                updateProgress("Unidades", 1.0f, 1)
 
                 // Sheet: Acordos
                 updateProgress("Acordos", 0.1f, 1)
@@ -523,6 +541,38 @@ object ExcelHelper {
             try {
                 val inputStream = context.contentResolver.openInputStream(uri) ?: return@withContext false
                 val workbook = XSSFWorkbook(inputStream)
+
+                val sheetUnits = workbook.getSheet("Unidades")
+                if (sheetUnits != null) {
+                    for (i in 1..sheetUnits.lastRowNum) {
+                        val row = sheetUnits.getRow(i) ?: continue
+                        try {
+                            val id = try { row.getCell(0).numericCellValue.toLong() } catch(_: Exception) { 0L }
+                            val apt = try { row.getCell(1).toString().replace(".0", "").trim() } catch(_: Exception) { "" }
+                            if (apt.isBlank()) continue
+                            val floor = try { row.getCell(2).numericCellValue.toInt() } catch(_: Exception) { 0 }
+                            val owner = try { row.getCell(3).stringCellValue } catch(_: Exception) { "" }
+                            val phone = try { row.getCell(4).toString().replace(".0", "").trim() } catch(_: Exception) { "" }
+                            val email = try { row.getCell(5).stringCellValue } catch(_: Exception) { "" }
+                            val notes = try { row.getCell(6).stringCellValue } catch(_: Exception) { "" }
+
+                            val targetId = if (id != 0L) id else getUnitIdForApartment(apt)
+                            val calcFloor = if (floor != 0) floor else (apt.substring(0, (apt.length - 2).coerceAtLeast(1)).toIntOrNull() ?: 2)
+
+                            val u = UnitEntity(
+                                id = targetId,
+                                apartment = apt,
+                                floor = calcFloor,
+                                ownerName = owner,
+                                phone = phone,
+                                email = email,
+                                notes = notes
+                            )
+                            dao.insertUnit(u)
+                            FirestoreSyncManager.syncUnit(u)
+                        } catch(_: Exception) {}
+                    }
+                }
                 
                 val sheetAgg = workbook.getSheet("Acordos")
                 if (sheetAgg != null) {
@@ -980,6 +1030,171 @@ object ExcelHelper {
             }
             val res = "Importação de andamentos concluída.\nSucessos: $successCount\nFalhas: ${errors.size}"
             if (errors.isNotEmpty()) res + "\n\nPrimeiros erros:\n" + errors.take(10).joinToString("\n") { "- $it" } else res
+        }
+    }
+
+    suspend fun exportUnitsTable(context: Context, dao: AppDao, uri: Uri): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val workbook = XSSFWorkbook()
+                val sheet = workbook.createSheet("Unidades")
+                val header = sheet.createRow(0)
+                listOf("ID", "Apartamento", "Andar", "Proprietário / Morador", "Telefone", "E-mail", "Observações").forEachIndexed { i, s -> 
+                    header.createCell(i).setCellValue(s) 
+                }
+
+                val units = dao.getAllUnitsList().sortedWith(compareBy({ it.floor }, { naturalSortApartments(it.apartment) }))
+                units.forEachIndexed { i, item ->
+                    val row = sheet.createRow(i + 1)
+                    row.createCell(0).setCellValue(item.id.toDouble())
+                    row.createCell(1).setCellValue(item.apartment)
+                    row.createCell(2).setCellValue(item.floor.toDouble())
+                    row.createCell(3).setCellValue(item.ownerName)
+                    row.createCell(4).setCellValue(item.phone)
+                    row.createCell(5).setCellValue(item.email)
+                    row.createCell(6).setCellValue(item.notes)
+                }
+
+                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                    workbook.write(outputStream)
+                }
+                workbook.close()
+                true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+        }
+    }
+
+    suspend fun exportUnitsTemplate(context: Context, uri: Uri): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val workbook = XSSFWorkbook()
+                val sheet = workbook.createSheet("Unidades")
+                val header = sheet.createRow(0)
+                listOf("ID", "Apartamento", "Andar", "Proprietário / Morador", "Telefone", "E-mail", "Observações").forEachIndexed { i, s -> 
+                    header.createCell(i).setCellValue(s) 
+                }
+
+                var rowIdx = 1
+                for (floor in 2..12) {
+                    for (u in 1..12) {
+                        val apt = "${floor}${String.format(Locale.getDefault(), "%02d", u)}"
+                        val fixedId = getUnitIdForApartment(apt)
+                        val row = sheet.createRow(rowIdx++)
+                        row.createCell(0).setCellValue(fixedId.toDouble())
+                        row.createCell(1).setCellValue(apt)
+                        row.createCell(2).setCellValue(floor.toDouble())
+                        row.createCell(3).setCellValue("")
+                        row.createCell(4).setCellValue("")
+                        row.createCell(5).setCellValue("")
+                        row.createCell(6).setCellValue("")
+                    }
+                }
+
+                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                    workbook.write(outputStream)
+                }
+                workbook.close()
+                true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+        }
+    }
+
+    suspend fun importUnitsTable(context: Context, dao: AppDao, uri: Uri): String {
+        return withContext(Dispatchers.IO) {
+            val errors = mutableListOf<String>()
+            var successCount = 0
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri) ?: return@withContext "Não foi possível abrir o arquivo."
+                val workbook = XSSFWorkbook(inputStream)
+                val sheet = workbook.getSheet("Unidades") ?: (if (workbook.numberOfSheets > 0) workbook.getSheetAt(0) else null)
+                if (sheet == null) {
+                    return@withContext "Planilha vazia ou sem abas encontradas."
+                }
+
+                for (i in 1..sheet.lastRowNum) {
+                    val row = sheet.getRow(i) ?: continue
+                    try {
+                        var aptStr = ""
+                        val col1 = row.getCell(1)
+                        val col0 = row.getCell(0)
+
+                        if (col1 != null && col1.toString().isNotBlank()) {
+                            aptStr = col1.toString().replace(".0", "").trim()
+                        } else if (col0 != null && col0.toString().isNotBlank()) {
+                            aptStr = col0.toString().replace(".0", "").trim()
+                        }
+
+                        if (aptStr.isBlank() || aptStr.equals("Apartamento", ignoreCase = true) || aptStr.equals("Apto", ignoreCase = true) || aptStr.equals("ID", ignoreCase = true)) {
+                            continue
+                        }
+
+                        val targetId = getUnitIdForApartment(aptStr)
+
+                        val floorCell = row.getCell(2)
+                        var floorNum = 0
+                        if (floorCell != null) {
+                            floorNum = when (floorCell.cellType) {
+                                org.apache.poi.ss.usermodel.CellType.NUMERIC -> floorCell.numericCellValue.toInt()
+                                else -> floorCell.toString().replace(Regex("[^0-9]"), "").toIntOrNull() ?: 0
+                            }
+                        }
+                        if (floorNum == 0) {
+                            floorNum = if (aptStr.length >= 3) {
+                                aptStr.substring(0, aptStr.length - 2).toIntOrNull() ?: 2
+                            } else 2
+                        }
+
+                        val ownerCell = row.getCell(3)
+                        val ownerName = ownerCell?.toString()?.trim() ?: ""
+
+                        val phoneCell = row.getCell(4)
+                        val phone = phoneCell?.toString()?.replace(".0", "")?.trim() ?: ""
+
+                        val emailCell = row.getCell(5)
+                        val email = emailCell?.toString()?.trim() ?: ""
+
+                        val notesCell = row.getCell(6)
+                        val notes = notesCell?.toString()?.trim() ?: ""
+
+                        val unitEntity = UnitEntity(
+                            id = targetId,
+                            apartment = aptStr,
+                            floor = floorNum,
+                            ownerName = ownerName,
+                            phone = phone,
+                            email = email,
+                            notes = notes
+                        )
+
+                        dao.insertUnit(unitEntity)
+                        FirestoreSyncManager.syncUnit(unitEntity)
+                        successCount++
+                    } catch (e: Exception) {
+                        errors.add("Linha ${i + 1}: ${e.message}")
+                    }
+                }
+
+                workbook.close()
+                inputStream.close()
+
+                val sb = StringBuilder("Importação de unidades concluída.\nSucessos: $successCount")
+                if (errors.isNotEmpty()) {
+                    sb.append("\nFalhas (${errors.size}):\n").append(errors.take(10).joinToString("\n") { "- $it" })
+                    if (errors.size > 10) {
+                        sb.append("\n... e mais ${errors.size - 10} erro(s).")
+                    }
+                }
+                sb.toString()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                "Erro ao importar planilha: ${e.message}"
+            }
         }
     }
 }

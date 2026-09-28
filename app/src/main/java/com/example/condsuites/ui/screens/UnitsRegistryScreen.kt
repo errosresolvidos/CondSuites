@@ -3,6 +3,9 @@ package com.example.condsuites.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,6 +31,7 @@ import com.example.condsuites.data.model.DelinquentWithProgress
 import com.example.condsuites.data.model.DelinquencyHistoryEntity
 import com.example.condsuites.data.model.LawsuitWithProgress
 import com.example.condsuites.data.model.UnitEntity
+import com.example.condsuites.data.model.UserEntity
 import com.example.condsuites.service.FirestoreSyncManager
 import com.example.condsuites.ui.components.ActiveDebtorBanner
 import com.example.condsuites.ui.components.ArchivedProcessBanner
@@ -35,12 +39,16 @@ import com.example.condsuites.ui.components.UnitMetricCard
 import com.example.condsuites.ui.navigation.Screen
 import com.example.condsuites.ui.screens.reports.generateUnitsHtmlReport
 import com.example.condsuites.ui.screens.reports.generateUnitsTextReport
+import com.example.condsuites.utils.ExcelHelper
 import com.example.condsuites.utils.formatCurrency
 import com.example.condsuites.utils.getUnitIdForApartment
 import com.example.condsuites.utils.naturalSortApartments
 import com.example.condsuites.utils.printHtmlReport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 suspend fun deduplicateUnitsInDatabase(dao: AppDao) {
@@ -84,7 +92,84 @@ suspend fun deduplicateUnitsInDatabase(dao: AppDao) {
 fun UnitsRegistryScreen(
     dao: AppDao,
     context: Context,
-    onNavigate: (Screen) -> Unit = {}
+    currentUser: UserEntity? = null,
+    onNavigate: (Screen) -> Unit = {},
+    onNavigateToAgreements: (apartment: String, tab: Int) -> Unit = { _, _ -> }
+) {
+    val isAdmin = remember(currentUser) {
+        currentUser == null || currentUser.role.equals("ADMIN", ignoreCase = true) || currentUser.username.equals("admin", ignoreCase = true)
+    }
+
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (isAdmin) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(top = 12.dp, start = 16.dp, end = 16.dp, bottom = 0.dp)
+                ) {
+                    Text(
+                        "Cadastro & Gestão das Unidades",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TabRow(
+                        selectedTabIndex = selectedTabIndex,
+                        containerColor = Color.Transparent,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ) {
+                        Tab(
+                            selected = selectedTabIndex == 0,
+                            onClick = { selectedTabIndex = 0 },
+                            text = { Text("Cadastro de Unidades", fontWeight = FontWeight.Bold) },
+                            icon = { Icon(Icons.Default.Apartment, contentDescription = null) }
+                        )
+                        Tab(
+                            selected = selectedTabIndex == 1,
+                            onClick = { selectedTabIndex = 1 },
+                            text = { Text("Exportar / Importar", fontWeight = FontWeight.Bold) },
+                            icon = { Icon(Icons.Default.SwapVert, contentDescription = null) }
+                        )
+                    }
+                }
+            }
+        }
+
+        Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+            when (if (isAdmin) selectedTabIndex else 0) {
+                0 -> {
+                    UnitsListContent(
+                        dao = dao,
+                        context = context,
+                        currentUser = currentUser,
+                        onNavigate = onNavigate,
+                        onNavigateToAgreements = onNavigateToAgreements
+                    )
+                }
+                1 -> {
+                    UnitsExportImportTab(
+                        dao = dao,
+                        context = context
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun UnitsListContent(
+    dao: AppDao,
+    context: Context,
+    currentUser: UserEntity? = null,
+    onNavigate: (Screen) -> Unit = {},
+    onNavigateToAgreements: (apartment: String, tab: Int) -> Unit = { _, _ -> }
 ) {
     val units by dao.getAllUnits().collectAsState(initial = emptyList())
     val delinquents by dao.getDelinquents().collectAsState(initial = emptyList())
@@ -97,13 +182,24 @@ fun UnitsRegistryScreen(
 
     val scope = rememberCoroutineScope()
 
+    val canSeeDebtors = remember(currentUser) {
+        if (currentUser == null) return@remember true
+        val role = currentUser.role.trim()
+        val username = currentUser.username.trim()
+        role.equals("ADMIN", ignoreCase = true) ||
+        username.equals("admin", ignoreCase = true) ||
+        role.equals("Síndico", ignoreCase = true) ||
+        role.equals("Conselheiro Fiscal", ignoreCase = true) ||
+        role.contains("Conselho", ignoreCase = true)
+    }
+
     LaunchedEffect(Unit) {
         scope.launch(Dispatchers.IO) {
             deduplicateUnitsInDatabase(dao)
 
             if (dao.getUnitCount() == 0) {
                 val defaultList = mutableListOf<UnitEntity>()
-                for (floor in 2..15) {
+                for (floor in 2..12) {
                     for (u in 1..12) {
                         val apt = "${floor}${String.format(Locale.getDefault(), "%02d", u)}"
                         val fixedId = getUnitIdForApartment(apt)
@@ -122,6 +218,14 @@ fun UnitsRegistryScreen(
                 }
                 dao.insertUnits(defaultList)
                 defaultList.forEach { FirestoreSyncManager.syncUnit(it) }
+            } else {
+                val over12Unassigned = dao.getAllUnitsList().filter { it.floor > 12 && it.ownerName.isBlank() && it.phone.isBlank() }
+                if (over12Unassigned.isNotEmpty()) {
+                    over12Unassigned.forEach {
+                        dao.deleteUnit(it.id)
+                        FirestoreSyncManager.syncUnit(it, isDelete = true)
+                    }
+                }
             }
         }
     }
@@ -130,7 +234,18 @@ fun UnitsRegistryScreen(
     var selectedStatusFilter by remember { mutableStateOf("Todos") }
     var selectedFloorFilter by remember { mutableStateOf("Todos Os Andares") }
 
+    LaunchedEffect(canSeeDebtors) {
+        if (!canSeeDebtors && selectedStatusFilter == "Devedoras") {
+            selectedStatusFilter = "Todos"
+        }
+    }
+
+    val isAdmin = remember(currentUser) {
+        currentUser == null || currentUser.role.equals("ADMIN", ignoreCase = true) || currentUser.username.equals("admin", ignoreCase = true)
+    }
+
     var unitToEdit by remember { mutableStateOf<UnitEntity?>(null) }
+    var unitToDelete by remember { mutableStateOf<UnitEntity?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var showPrintPreviewDialog by remember { mutableStateOf(false) }
 
@@ -154,7 +269,7 @@ fun UnitsRegistryScreen(
             val matchesStatus = when (selectedStatusFilter) {
                 "Cadastrados" -> unit.ownerName.isNotBlank()
                 "Pendentes" -> unit.ownerName.isBlank()
-                "Devedoras" -> isDebtor
+                "Devedoras" -> canSeeDebtors && isDebtor
                 else -> true
             }
 
@@ -195,7 +310,7 @@ fun UnitsRegistryScreen(
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        "Estrutura: 12 unidades por andar (A partir do 2º andar)",
+                        "Estrutura: 12 unidades por andar (Do 2º ao 12º andar)",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
                     )
@@ -246,16 +361,18 @@ fun UnitsRegistryScreen(
                         label = { Text("Pendentes", style = MaterialTheme.typography.labelSmall) },
                         modifier = Modifier.weight(1f)
                     )
-                    FilterChip(
-                        selected = selectedStatusFilter == "Devedoras",
-                        onClick = { selectedStatusFilter = "Devedoras" },
-                        label = { Text("Devedoras", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFFD32F2F),
-                            selectedLabelColor = Color.White
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
+                    if (canSeeDebtors) {
+                        FilterChip(
+                            selected = selectedStatusFilter == "Devedoras",
+                            onClick = { selectedStatusFilter = "Devedoras" },
+                            label = { Text("Devedoras", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFFD32F2F),
+                                selectedLabelColor = Color.White
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
 
                 var expandedFloorMenu by remember { mutableStateOf(false) }
@@ -374,8 +491,12 @@ fun UnitsRegistryScreen(
                     hasArchivedAgreement = hasArchivedAgg,
                     archivedLawsuit = archivedLawMatch,
                     delinquencyHistory = unitDelHistory,
+                    canSeeDebtors = canSeeDebtors,
+                    isAdmin = isAdmin,
                     onEdit = { unitToEdit = unit },
+                    onDelete = { unitToDelete = unit },
                     onNavigate = onNavigate,
+                    onNavigateToAgreements = onNavigateToAgreements,
                     context = context
                 )
             }
@@ -385,6 +506,7 @@ fun UnitsRegistryScreen(
     if (unitToEdit != null) {
         EditUnitDialog(
             unit = unitToEdit!!,
+            isAdmin = isAdmin,
             onDismiss = { unitToEdit = null },
             onConfirm = { updated ->
                 scope.launch {
@@ -392,6 +514,38 @@ fun UnitsRegistryScreen(
                     FirestoreSyncManager.syncUnit(updated)
                 }
                 unitToEdit = null
+            },
+            onDelete = {
+                unitToDelete = unitToEdit
+                unitToEdit = null
+            }
+        )
+    }
+
+    if (unitToDelete != null) {
+        val targetUnit = unitToDelete!!
+        AlertDialog(
+            onDismissRequest = { unitToDelete = null },
+            title = { Text("Excluir Unidade", fontWeight = FontWeight.Bold) },
+            text = { Text("Tem certeza que deseja excluir a unidade Apto ${targetUnit.apartment} (${targetUnit.floor}º Andar)? Esta ação removerá a unidade do cadastro local e na nuvem.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            dao.deleteUnit(targetUnit.id)
+                            FirestoreSyncManager.syncUnit(targetUnit, isDelete = true)
+                        }
+                        unitToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Excluir Unidade", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { unitToDelete = null }) {
+                    Text("Cancelar")
+                }
             }
         )
     }
@@ -436,6 +590,272 @@ fun UnitsRegistryScreen(
 }
 
 @Composable
+fun UnitsExportImportTab(
+    dao: AppDao,
+    context: Context
+) {
+    val scope = rememberCoroutineScope()
+    var isLoading by remember { mutableStateOf(false) }
+    var importResultText by remember { mutableStateOf<String?>(null) }
+
+    val units by dao.getAllUnits().collectAsState(initial = emptyList())
+    val totalCount = units.size
+    val registeredCount = units.count { it.ownerName.isNotBlank() }
+    val pendingCount = totalCount - registeredCount
+
+    val exportUnitsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null) {
+            isLoading = true
+            scope.launch(Dispatchers.IO) {
+                val success = ExcelHelper.exportUnitsTable(context, dao, uri)
+                withContext(Dispatchers.Main) {
+                    isLoading = false
+                    Toast.makeText(
+                        context,
+                        if (success) "Unidades exportadas com sucesso!" else "Falha ao exportar unidades.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+    val exportTemplateLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        if (uri != null) {
+            isLoading = true
+            scope.launch(Dispatchers.IO) {
+                val success = ExcelHelper.exportUnitsTemplate(context, uri)
+                withContext(Dispatchers.Main) {
+                    isLoading = false
+                    Toast.makeText(
+                        context,
+                        if (success) "Modelo gerado com sucesso!" else "Falha ao gerar modelo.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+    val importUnitsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            isLoading = true
+            scope.launch(Dispatchers.IO) {
+                val resultMsg = ExcelHelper.importUnitsTable(context, dao, uri)
+                withContext(Dispatchers.Main) {
+                    isLoading = false
+                    importResultText = resultMsg
+                }
+            }
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "Exportação e Importação das Unidades",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "Gerencie os dados das unidades do condomínio em lote utilizando planilhas Excel.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        UnitMetricCard("Total Unidades", totalCount.toString(), Icons.Default.Apartment, Modifier.weight(1f))
+                        UnitMetricCard("Cadastradas", registeredCount.toString(), Icons.Default.CheckCircle, Modifier.weight(1f))
+                        UnitMetricCard("Pendentes", pendingCount.toString(), Icons.Default.NotificationImportant, Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+
+        if (isLoading) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(12.dp))
+                            Text("Processando arquivo Excel...", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Download, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Exportar Cadastro de Unidades",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Gere uma planilha Excel (.xlsx) contendo todas as unidades e dados dos moradores (Número, Andar, Morador, Telefone, E-mail e Observações).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Button(
+                                onClick = {
+                                    val time = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                                    exportUnitsLauncher.launch("Unidades_CondSuites_$time.xlsx")
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.FileDownload, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Exportar Unidades")
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    exportTemplateLauncher.launch("Modelo_Unidades_CondSuites.xlsx")
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Description, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Baixar Modelo")
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Upload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Importar Dados das Unidades",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Importe um arquivo Excel (.xlsx) para cadastrar ou atualizar os moradores das unidades em massa no sistema.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(
+                                    "Formatos e Colunas da Planilha:",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text("• Coluna 1: ID ou Número do Apartamento (ex: 201, 304, 1212)", style = MaterialTheme.typography.bodySmall)
+                                Text("• Coluna 2: Número do Apartamento (caso ID esteja na Coluna 1)", style = MaterialTheme.typography.bodySmall)
+                                Text("• Coluna 3: Andar (ex: 2, 3, 12)", style = MaterialTheme.typography.bodySmall)
+                                Text("• Coluna 4: Nome do Proprietário / Morador", style = MaterialTheme.typography.bodySmall)
+                                Text("• Coluna 5: Telefone / Celular", style = MaterialTheme.typography.bodySmall)
+                                Text("• Coluna 6: E-mail do Condômino", style = MaterialTheme.typography.bodySmall)
+                                Text("• Coluna 7: Observações Gerais", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+
+                        Spacer(Modifier.height(14.dp))
+
+                        Button(
+                            onClick = {
+                                importUnitsLauncher.launch(
+                                    arrayOf(
+                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                        "application/vnd.ms-excel"
+                                    )
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.FileUpload, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Selecionar e Importar Planilha de Unidades")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (importResultText != null) {
+        AlertDialog(
+            onDismissRequest = { importResultText = null },
+            title = { Text("Resultado da Importação de Unidades") },
+            text = {
+                Text(
+                    importResultText!!,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(onClick = { importResultText = null }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+}
+
+@Composable
 fun UnitCard(
     unit: UnitEntity,
     delinquent: DelinquentWithProgress? = null,
@@ -445,8 +865,12 @@ fun UnitCard(
     hasArchivedAgreement: Boolean = false,
     archivedLawsuit: LawsuitWithProgress? = null,
     delinquencyHistory: List<DelinquencyHistoryEntity> = emptyList(),
+    canSeeDebtors: Boolean = true,
+    isAdmin: Boolean = false,
     onEdit: () -> Unit,
+    onDelete: (() -> Unit)? = null,
     onNavigate: (Screen) -> Unit = {},
+    onNavigateToAgreements: (apartment: String, tab: Int) -> Unit = { _, _ -> },
     context: Context
 ) {
     val isRegistered = unit.ownerName.isNotBlank()
@@ -477,34 +901,6 @@ fun UnitCard(
                         )
                     }
                     Text("${unit.floor}º ANDAR", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontWeight = FontWeight.Bold)
-
-                    if (isDebtor) {
-                        Surface(
-                            color = Color(0xFFD32F2F),
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Text(
-                                "UNIDADE DEVEDORA",
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    } else if (hasArchived) {
-                        Surface(
-                            color = Color(0xFF546E7A),
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Text(
-                                "HISTÓRICO ARQUIVADO",
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
                 }
 
                 Surface(
@@ -540,23 +936,27 @@ fun UnitCard(
                 }
             }
 
-            if (isDebtor) {
-                Spacer(Modifier.height(10.dp))
-                ActiveDebtorBanner(
-                    delinquent = delinquent,
-                    agreement = agreement,
-                    lawsuit = lawsuit,
-                    onNavigate = onNavigate
-                )
-            } else if (hasArchived) {
-                Spacer(Modifier.height(10.dp))
-                ArchivedProcessBanner(
-                    hasArchivedDelinquent = hasArchivedDelinquent,
-                    hasArchivedAgreement = hasArchivedAgreement,
-                    archivedLawsuit = archivedLawsuit,
-                    delinquencyHistory = delinquencyHistory,
-                    onNavigate = onNavigate
-                )
+            if (canSeeDebtors) {
+                if (isDebtor) {
+                    Spacer(Modifier.height(10.dp))
+                    ActiveDebtorBanner(
+                        delinquent = delinquent,
+                        agreement = agreement,
+                        lawsuit = lawsuit,
+                        onNavigate = onNavigate,
+                        onNavigateToAgreements = onNavigateToAgreements
+                    )
+                } else if (hasArchived) {
+                    Spacer(Modifier.height(10.dp))
+                    ArchivedProcessBanner(
+                        hasArchivedDelinquent = hasArchivedDelinquent,
+                        hasArchivedAgreement = hasArchivedAgreement,
+                        archivedLawsuit = archivedLawsuit,
+                        delinquencyHistory = delinquencyHistory,
+                        onNavigate = onNavigate,
+                        onNavigateToAgreements = onNavigateToAgreements
+                    )
+                }
             }
 
             Spacer(Modifier.height(10.dp))
@@ -607,15 +1007,26 @@ fun UnitCard(
                     }
                 }
 
-                Button(
-                    onClick = onEdit,
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp)
-                ) {
-                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Editar Cadastro", style = MaterialTheme.typography.labelSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (isAdmin && onDelete != null) {
+                        IconButton(
+                            onClick = onDelete,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, "Excluir Unidade", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    Button(
+                        onClick = onEdit,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Editar Cadastro", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
         }
@@ -626,8 +1037,10 @@ fun UnitCard(
 @Composable
 fun EditUnitDialog(
     unit: UnitEntity,
+    isAdmin: Boolean = false,
     onDismiss: () -> Unit,
-    onConfirm: (UnitEntity) -> Unit
+    onConfirm: (UnitEntity) -> Unit,
+    onDelete: (() -> Unit)? = null
 ) {
     var ownerName by remember { mutableStateOf(unit.ownerName) }
     var phone by remember { mutableStateOf(unit.phone) }
@@ -704,7 +1117,19 @@ fun EditUnitDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (isAdmin && onDelete != null) {
+                    TextButton(
+                        onClick = onDelete,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Excluir")
+                    }
+                }
+                TextButton(onClick = onDismiss) { Text("Cancelar") }
+            }
         }
     )
 }

@@ -25,7 +25,8 @@ fun ActiveDebtorBanner(
     delinquent: DelinquentWithProgress?,
     agreement: AgreementWithInstallments?,
     lawsuit: LawsuitWithProgress?,
-    onNavigate: (Screen) -> Unit
+    onNavigate: (Screen) -> Unit,
+    onNavigateToAgreements: (apartment: String, tab: Int) -> Unit = { _, _ -> }
 ) {
     Surface(
         color = Color(0xFFFFF0F0),
@@ -34,10 +35,37 @@ fun ActiveDebtorBanner(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Situação de Inadimplência / Cobrança", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Histórico de Cobrança",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFD32F2F)
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Surface(
+                    color = Color(0xFFD32F2F),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        "UNIDADE DEVEDORA",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             if (delinquent != null) {
@@ -60,7 +88,10 @@ fun ActiveDebtorBanner(
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(
-                        onClick = { onNavigate(Screen.Agreements) },
+                        onClick = {
+                            onNavigateToAgreements(delinquent.delinquent.apartment, 0)
+                            onNavigate(Screen.Agreements)
+                        },
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                         modifier = Modifier.height(28.dp)
                     ) {
@@ -87,7 +118,10 @@ fun ActiveDebtorBanner(
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(
-                        onClick = { onNavigate(Screen.Agreements) },
+                        onClick = {
+                            onNavigateToAgreements(agreement.agreement.apartment, 1)
+                            onNavigate(Screen.Agreements)
+                        },
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                         modifier = Modifier.height(28.dp)
                     ) {
@@ -112,7 +146,10 @@ fun ActiveDebtorBanner(
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(
-                        onClick = { onNavigate(Screen.Lawsuits) },
+                        onClick = {
+                            onNavigateToAgreements(lawsuit.lawsuit.apartment, 2)
+                            onNavigate(Screen.Agreements)
+                        },
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                         modifier = Modifier.height(28.dp)
                     ) {
@@ -132,7 +169,8 @@ fun ArchivedProcessBanner(
     hasArchivedAgreement: Boolean,
     archivedLawsuit: LawsuitWithProgress?,
     delinquencyHistory: List<DelinquencyHistoryEntity>,
-    onNavigate: (Screen) -> Unit
+    onNavigate: (Screen) -> Unit,
+    onNavigateToAgreements: (apartment: String, tab: Int) -> Unit = { _, _ -> }
 ) {
     Surface(
         color = Color(0xFFECEFF1),
@@ -141,10 +179,37 @@ fun ArchivedProcessBanner(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.History, contentDescription = null, tint = Color(0xFF455A64), modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Histórico de Processos Arquivados / Concluídos", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF37474F))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.History, contentDescription = null, tint = Color(0xFF455A64), modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Histórico de Processos Arquivados / Concluídos",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF37474F)
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Surface(
+                    color = Color(0xFF546E7A),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        "HISTÓRICO ARQUIVADO",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             if (hasArchivedDelinquent) {
@@ -160,7 +225,10 @@ fun ArchivedProcessBanner(
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(
-                        onClick = { onNavigate(Screen.Agreements) },
+                        onClick = {
+                            delinquencyHistory.firstOrNull()?.apartment?.let { onNavigateToAgreements(it, 0) }
+                            onNavigate(Screen.Agreements)
+                        },
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                         modifier = Modifier.height(28.dp)
                     ) {
@@ -184,7 +252,10 @@ fun ArchivedProcessBanner(
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(
-                        onClick = { onNavigate(Screen.Agreements) },
+                        onClick = {
+                            delinquencyHistory.firstOrNull()?.apartment?.let { onNavigateToAgreements(it, 1) }
+                            onNavigate(Screen.Agreements)
+                        },
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                         modifier = Modifier.height(28.dp)
                     ) {
@@ -208,7 +279,10 @@ fun ArchivedProcessBanner(
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(
-                        onClick = { onNavigate(Screen.Lawsuits) },
+                        onClick = {
+                            onNavigateToAgreements(archivedLawsuit.lawsuit.apartment, 2)
+                            onNavigate(Screen.Agreements)
+                        },
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                         modifier = Modifier.height(28.dp)
                     ) {

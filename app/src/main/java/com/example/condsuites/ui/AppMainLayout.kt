@@ -88,6 +88,8 @@ fun AppMainLayout(
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
+    var targetAgreementsApartment by remember { mutableStateOf<String?>(null) }
+    var targetAgreementsTab by remember { mutableIntStateOf(0) }
     var expandedItems by remember { mutableStateOf(setOf<String>()) }
 
     val occurrencesWithMessages by dao.getAllOccurrences().collectAsState(initial = emptyList())
@@ -347,10 +349,30 @@ fun AppMainLayout(
             ) {
                 when (currentScreen) {
                     Screen.Home -> HomeScreen(dao, currentUser, scope, onNavigate = { screen -> currentScreen = screen })
-                    Screen.Agreements -> AgreementsManagementScreen(agreements, delinquents, lawsuits, dao, scope, currentUser)
+                    Screen.Agreements -> AgreementsManagementScreen(
+                        agreements = agreements,
+                        delinquents = delinquents,
+                        lawsuits = lawsuits,
+                        dao = dao,
+                        scope = scope,
+                        currentUser = currentUser,
+                        initialTab = targetAgreementsTab,
+                        targetApartment = targetAgreementsApartment,
+                        onClearTarget = { targetAgreementsApartment = null }
+                    )
                     Screen.Lawsuits -> LawsuitsManagementScreen(lawsuits, agreements, dao, scope)
                     Screen.Occurrences, Screen.OccurrencesListNav -> OccurrencesScreen(dao, currentUser, scope, isCompact = false)
-                    Screen.Units, Screen.UnitsRegistry -> UnitsRegistryScreen(dao, context, onNavigate = { screen -> currentScreen = screen })
+                    Screen.Units, Screen.UnitsRegistry -> UnitsRegistryScreen(
+                        dao = dao,
+                        context = context,
+                        currentUser = currentUser,
+                        onNavigate = { screen -> currentScreen = screen },
+                        onNavigateToAgreements = { apt, tab ->
+                            targetAgreementsApartment = apt
+                            targetAgreementsTab = tab
+                            currentScreen = Screen.Agreements
+                        }
+                    )
                     Screen.Overtime -> OvertimeManagementScreen(dao, currentUser, scope)
                     Screen.Elevators -> ElevatorsScreen(dao, currentUser, scope)
                     Screen.Contracts -> ContractsScreen(dao, currentUser, scope)

@@ -70,7 +70,7 @@ fun generateUnitsHtmlReport(units: List<UnitEntity>): String {
 
             <div class="meta-table">
                 <strong>Emissão:</strong> $nowStr &nbsp;|&nbsp; 
-                <strong>Estrutura:</strong> 12 Unidades/Andar (A partir do 2º Andar) &nbsp;|&nbsp;
+                <strong>Estrutura:</strong> 12 Unidades/Andar (Do 2º ao 12º Andar) &nbsp;|&nbsp;
                 <strong>Total Unidades:</strong> $total
             </div>
 
@@ -157,7 +157,7 @@ fun generateUnitsTextReport(units: List<UnitEntity>): String {
     val sb = StringBuilder()
     sb.append("══════════════════════════════════════════════════\n")
     sb.append("🏢 CONDSUITES - CADASTRO DE UNIDADES\n")
-    sb.append("📋 ESTRUTURA: 12 UNIDADES POR ANDAR (A PARTIR DO 2º ANDAR)\n")
+    sb.append("📋 ESTRUTURA: 12 UNIDADES POR ANDAR (DO 2º AO 12º ANDAR)\n")
     sb.append("══════════════════════════════════════════════════\n\n")
     sb.append("📅 Data de Emissão: $nowStr\n")
     sb.append("--------------------------------------------------\n")

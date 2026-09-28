@@ -57,9 +57,12 @@ fun AgreementsManagementScreen(
     dao: AppDao, 
     scope: CoroutineScope,
     currentUser: UserEntity,
-    isCompact: Boolean = true
+    isCompact: Boolean = true,
+    initialTab: Int = 0,
+    targetApartment: String? = null,
+    onClearTarget: () -> Unit = {}
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(initialTab) }
     val tabs = listOf("Notificações", "Acordos", "Ajuizados")
     
     var showAddAgreement by remember { mutableStateOf(false) }
@@ -78,6 +81,34 @@ fun AgreementsManagementScreen(
     var lawsuitForSuccess by remember { mutableStateOf<LawsuitEntity?>(null) }
     var lawsuitForDelete by remember { mutableStateOf<LawsuitEntity?>(null) }
     var lawsuitForEditWithPwd by remember { mutableStateOf<LawsuitEntity?>(null) }
+
+    LaunchedEffect(targetApartment, initialTab, agreements, delinquents, lawsuits) {
+        if (!targetApartment.isNullOrBlank()) {
+            selectedTab = initialTab
+            val cleanApt = targetApartment.trim()
+            when (initialTab) {
+                0 -> {
+                    val match = delinquents.find { it.delinquent.apartment.trim().equals(cleanApt, ignoreCase = true) }
+                    if (match != null) {
+                        delinquentToEdit = match.delinquent
+                    }
+                }
+                1 -> {
+                    val match = agreements.find { it.agreement.apartment.trim().equals(cleanApt, ignoreCase = true) }
+                    if (match != null) {
+                        selectedId = match.agreement.id
+                    }
+                }
+                2 -> {
+                    val match = lawsuits.find { it.lawsuit.apartment.trim().equals(cleanApt, ignoreCase = true) }
+                    if (match != null) {
+                        lawsuitToEdit = match.lawsuit
+                    }
+                }
+            }
+            onClearTarget()
+        }
+    }
     
     var statusFilter by remember { mutableStateOf("Todos") }
     var expandedFilter by remember { mutableStateOf(false) }
