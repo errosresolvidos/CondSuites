@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "CondSuites"
 include(":app")
+include(":shared")

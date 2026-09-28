@@ -1,0 +1,90 @@
+workflows:
+  kmp-ios-release:
+    name: iOS IPA Build (Kotlin Multiplatform)
+    max_build_duration: 120
+    instance_type: mac_mini_m1 # Instância macOS recomendada (mac_mini_m1, mac_studio, etc.)
+
+    environment:
+      groups:
+        # Grupo de variáveis configurado no painel do Codemagic
+        # Deve conter: APP_STORE_CONNECT_PRIVATE_KEY, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID
+        - app_store_credentials
+      vars:
+        XCODE_WORKSPACE: "iosApp/iosApp.xcworkspace" # Caminho para o .xcworkspace do projeto iOS
+        XCODE_SCHEME: "iosApp"                       # Nome do Scheme no Xcode
+        BUNDLE_ID: "com.exemplo.seuapp"              # Bundle Identifier registrado na Apple
+        APP_STORE_APP_ID: 1234567890                 # Apple ID numérico do app no App Store Connect
+      java: 17                                       # Versão do Java necessária para compilar o Gradle/KMP
+      xcode: latest                                  # Versão do Xcode (ou especifique ex: 15.4)
+      cocoapods: default                             # Instala a versão padrão do CocoaPods se utilizado
+
+    triggering:
+      events:
+        - push
+        - tag
+      branch_patterns:
+        - pattern: 'main'
+          include: true
+
+    scripts:
+      - name: Set up Java & Gradle permissions
+        script: |
+          chmod +x gradlew
+
+      - name: Build KMP Shared Module (Opcional se executado via Run Script no Xcode)
+        script: |
+          # Compila o framework Kotlin para iOS (pode ser :shared ou :composeApp dependendo do seu projeto)
+          ./gradlew :shared:assembleXCFramework
+
+      - name: Install iOS Dependencies (CocoaPods)
+        script: |
+          # Se o seu projeto usa CocoaPods para o KMP ou dependências do iOS
+          if [ -f "iosApp/Podfile" ]; then
+            cd iosApp
+            pod install
+          fi
+
+      - name: Set up Code Signing (App Store Connect API)
+        script: |
+          # Inicializa os perfis de provisionamento e certificados automaticamente via API da Apple
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Increment Build Number
+        script: |
+          # Atualiza o build number usando a contagem de builds do Codemagic
+          cd iosApp
+          agvtool new-version -all $BUILD_NUMBER
+
+      - name: Build iOS IPA
+        script: |
+          # Gera o arquivo .ipa assinado usando as ferramentas CLI do Codemagic
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME" \
+            --config Release
+
+    artifacts:
+      # Define os arquivos gerados que você poderá baixar após o build
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/Products/**/*.dSYM
+
+    publishing:
+      email:
+        recipients:
+          - dev@suaempresa.com
+        notify:
+          on_success: true
+          on_failure: true
+
+      app_store_connect:
+        auth: integration # Usa a integração configurada da App Store Connect API no Codemagic
+        submit_to_testflight: true
+        beta_build_localizations:
+          - language: pt-BR
+            whats_new: "Nova versão compilada via Codemagic CI/CD."
