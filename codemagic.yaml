@@ -42,19 +42,15 @@ workflows:
 
       - name: Build iOS IPA for Testing
         script: |
-          # Detecta automaticamente se deve usar .xcworkspace ou .xcodeproj
+          mkdir -p build/ios/ipa
+          
+          BUILD_TARGET_FLAG=""
           if [ -d "$XCODE_WORKSPACE" ]; then
             echo "Usando Workspace: $XCODE_WORKSPACE"
-            xcode-project build-ipa \
-              --workspace "$XCODE_WORKSPACE" \
-              --scheme "$XCODE_SCHEME" \
-              --config Debug
+            BUILD_TARGET_FLAG="-workspace $XCODE_WORKSPACE"
           elif [ -d "$XCODE_PROJECT" ] || [ -f "$XCODE_PROJECT" ]; then
             echo "Usando Projeto: $XCODE_PROJECT"
-            xcode-project build-ipa \
-              --project "$XCODE_PROJECT" \
-              --scheme "$XCODE_SCHEME" \
-              --config Debug
+            BUILD_TARGET_FLAG="-project $XCODE_PROJECT"
           else
             echo "---------------------------------------------------------"
             echo "ERRO: Projeto Xcode não encontrado no repositório!"
@@ -63,6 +59,28 @@ workflows:
             echo "---------------------------------------------------------"
             exit 1
           fi
+
+          # Compila e arquiva o projeto iOS via xcodebuild sem exigir certificados pagos
+          xcodebuild archive \
+            $BUILD_TARGET_FLAG \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Debug \
+            -archivePath build/ios/iosApp.xcarchive \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
+
+          # Empacota o app compilado na estrutura de pacote IPA (.ipa)
+          mkdir -p build/ios/ipa/Payload
+          cp -R build/ios/iosApp.xcarchive/Products/Applications/iosApp.app build/ios/ipa/Payload/
+          
+          cd build/ios/ipa
+          zip -q -r iosApp.ipa Payload
+          cd ../../..
+          
+          echo "IPA de teste gerado com sucesso em: build/ios/ipa/iosApp.ipa"
 
     artifacts:
       # Caminhos dos arquivos .ipa gerados para download no Codemagic
