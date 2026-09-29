@@ -1,0 +1,36 @@
+{
+  "name": "CondSuites Source",
+  "identifier": "com.example.condsuites.source",
+  "subtitle": "Fonte oficial do projeto CondSuites",
+  "description": "Repositório de distribuição para o aplicativo CondSuites via AltStore / SideStore.",
+  "website": "https://github.com",
+  "iconURL": "https://raw.githubusercontent.com/user/repository/main/assets/icon.png",
+  "tintColor": "007AFF",
+  "apps": [
+    {
+      "name": "CondSuites",
+      "bundleIdentifier": "com.example.condsuites.iosApp",
+      "developerName": "CondSuites Team",
+      "subtitle": "Sistema de gestão para condomínios e suítes",
+      "localizedDescription": "CondSuites é uma solução completa para gerenciamento de condomínios, moradores, reservas e controle de suítes.",
+      "iconURL": "https://raw.githubusercontent.com/user/repository/main/assets/app-icon.png",
+      "tintColor": "007AFF",
+      "version": "1.0.0",
+      "versionDate": "2026-09-29T00:00:00Z",
+      "versionDescription": "Versão inicial 1.0.0 do aplicativo CondSuites.",
+      "downloadURL": "https://github.com/user/repository/releases/download/v1.0.0/iosApp.ipa",
+      "size": 15728640,
+      "minOSVersion": "15.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "date": "2026-09-29T00:00:00Z",
+          "versionDescription": "Versão inicial 1.0.0 do aplicativo CondSuites.",
+          "downloadURL": "https://github.com/user/repository/releases/download/v1.0.0/iosApp.ipa",
+          "size": 15728640,
+          "minOSVersion": "15.0"
+        }
+      ]
+    }
+  ]
+}
