@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 struct LoginView: View {
     @EnvironmentObject var appState: AppState
@@ -49,9 +48,10 @@ struct LoginView: View {
                                 .foregroundColor(.blue)
                             TextField("Digite seu usuário", text: $username)
                                 .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled(true)
                         }
                         .padding()
-                        .background(Color(uiColor: .systemGray6))
+                        .background(Color.gray.opacity(0.12))
                         .cornerRadius(12)
                     }
 
@@ -67,7 +67,7 @@ struct LoginView: View {
                             SecureField("Digite sua senha", text: $password)
                         }
                         .padding()
-                        .background(Color(uiColor: .systemGray6))
+                        .background(Color.gray.opacity(0.12))
                         .cornerRadius(12)
                     }
 

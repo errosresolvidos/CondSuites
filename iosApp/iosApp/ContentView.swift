@@ -52,49 +52,35 @@ struct MoreMenuView: View {
         NavigationStack {
             List {
                 Section("Gestão & Operação") {
-                    NavigationLink {
-                        AgreementsView()
-                    } label: {
+                    NavigationLink(destination: AgreementsView()) {
                         Label("Acordos de Cobrança", systemName: "handshake.fill")
                     }
 
-                    NavigationLink {
-                        LawsuitsView()
-                    } label: {
+                    NavigationLink(destination: LawsuitsView()) {
                         Label("Ações Judiciais (Ajuizados)", systemName: "gavel")
                     }
 
-                    NavigationLink {
-                        ElevatorsView()
-                    } label: {
+                    NavigationLink(destination: ElevatorsView()) {
                         Label("Gestão de Elevadores", systemName: "arrow.up.and.down.square.fill")
                     }
 
-                    NavigationLink {
-                        ContractsView()
-                    } label: {
+                    NavigationLink(destination: ContractsView()) {
                         Label("Contratos de Terceiros", systemName: "doc.text.fill")
                     }
 
-                    NavigationLink {
-                        OvertimeView()
-                    } label: {
+                    NavigationLink(destination: OvertimeView()) {
                         Label("Lançar Horas Extras", systemName: "clock.badge.plus")
                     }
                 }
 
                 Section("Análises & Relatórios") {
-                    NavigationLink {
-                        ReportsView()
-                    } label: {
+                    NavigationLink(destination: ReportsView()) {
                         Label("Relatórios Gerenciais", systemName: "chart.bar.doc.horizontal.fill")
                     }
                 }
 
                 Section("Ajustes") {
-                    NavigationLink {
-                        SettingsView()
-                    } label: {
+                    NavigationLink(destination: SettingsView()) {
                         Label("Configurações", systemName: "gearshape.fill")
                     }
                 }
