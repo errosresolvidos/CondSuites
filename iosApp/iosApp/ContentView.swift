@@ -23,20 +23,26 @@ struct MainTabView: View {
                     Label("Início", systemName: "house.fill")
                 }
 
-            UnitsView()
-                .tabItem {
-                    Label("Unidades", systemName: "building.2.fill")
-                }
+            NavigationStack {
+                UnitsView()
+            }
+            .tabItem {
+                Label("Unidades", systemName: "building.2.fill")
+            }
 
-            OccurrencesView()
-                .tabItem {
-                    Label("Ocorrências", systemName: "exclamationmark.triangle.fill")
-                }
+            NavigationStack {
+                OccurrencesView()
+            }
+            .tabItem {
+                Label("Ocorrências", systemName: "exclamationmark.triangle.fill")
+            }
 
-            FinanceView()
-                .tabItem {
-                    Label("Financeiro", systemName: "dollarsign.circle.fill")
-                }
+            NavigationStack {
+                FinanceView()
+            }
+            .tabItem {
+                Label("Financeiro", systemName: "dollarsign.circle.fill")
+            }
 
             MoreMenuView()
                 .tabItem {

@@ -7,59 +7,57 @@ struct SettingsView: View {
     @State private var showingUserManagementSheet = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section("Perfil do Usuário") {
-                    HStack(spacing: 16) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 48))
-                            .foregroundColor(.blue)
+        List {
+            Section("Perfil do Usuário") {
+                HStack(spacing: 16) {
+                    Image(systemName: "person.circle.fill")
+                        .font(.system(size: 48))
+                        .foregroundColor(.blue)
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(appState.currentUser?.username.capitalized ?? "Usuário")
-                                .font(.headline)
-                            Text("Perfil: \(appState.currentUser?.role ?? "ADMIN")")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                Section("Preferências do Sistema") {
-                    Toggle("Notificações Push (FCM)", isOn: $notificationsEnabled)
-                    Toggle("Sincronização em Tempo Real", isOn: $autoSyncEnabled)
-                }
-
-                if appState.currentUser?.role == "ADMIN" || appState.currentUser?.role == "SÍNDICO" {
-                    Section("Administração") {
-                        Button {
-                            showingUserManagementSheet = true
-                        } label: {
-                            Label("Gestão de Usuários e Permissões", systemName: "person.2.fill")
-                                .foregroundColor(.primary)
-                        }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(appState.currentUser?.username.capitalized ?? "Usuário")
+                            .font(.headline)
+                        Text("Perfil: \(appState.currentUser?.role ?? "ADMIN")")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
+                .padding(.vertical, 4)
+            }
 
-                Section {
-                    Button(role: .destructive) {
-                        appState.logout()
+            Section("Preferências do Sistema") {
+                Toggle("Notificações Push (FCM)", isOn: $notificationsEnabled)
+                Toggle("Sincronização em Tempo Real", isOn: $autoSyncEnabled)
+            }
+
+            if appState.currentUser?.role == "ADMIN" || appState.currentUser?.role == "SÍNDICO" {
+                Section("Administração") {
+                    Button {
+                        showingUserManagementSheet = true
                     } label: {
-                        HStack {
-                            Spacer()
-                            Label("Sair da Conta", systemName: "arrow.right.square")
-                                .fontWeight(.bold)
-                            Spacer()
-                        }
+                        Label("Gestão de Usuários e Permissões", systemName: "person.2.fill")
+                            .foregroundColor(.primary)
                     }
                 }
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Configurações")
-            .sheet(isPresented: $showingUserManagementSheet) {
-                UserManagementSheetView()
+
+            Section {
+                Button(role: .destructive) {
+                    appState.logout()
+                } label: {
+                    HStack {
+                        Spacer()
+                        Label("Sair da Conta", systemName: "arrow.right.square")
+                            .fontWeight(.bold)
+                        Spacer()
+                    }
+                }
             }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Configurações")
+        .sheet(isPresented: $showingUserManagementSheet) {
+            UserManagementSheetView()
         }
     }
 }

@@ -5,76 +5,74 @@ struct AgreementsView: View {
     @State private var showingNewAgreementSheet = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(appState.agreements) { agreement in
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Unidade \(agreement.unitNumber)")
-                                .font(.headline)
-                            Spacer()
-                            Text(agreement.status)
+        List {
+            ForEach(appState.agreements) { agreement in
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Unidade \(agreement.unitNumber)")
+                            .font(.headline)
+                        Spacer()
+                        Text(agreement.status)
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(agreement.status == "Quitado" ? Color.green.opacity(0.15) : Color.blue.opacity(0.15))
+                            .foregroundColor(agreement.status == "Quitado" ? .green : .blue)
+                            .cornerRadius(8)
+                    }
+
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Valor Original")
                                 .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text(agreement.originalAmount.currencyFormatted)
+                                .font(.subheadline)
+                                .strikethrough()
+                                .foregroundColor(.secondary)
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Valor Acordado")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text(agreement.agreedAmount.currencyFormatted)
+                                .font(.subheadline)
                                 .fontWeight(.bold)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(agreement.status == "Quitado" ? Color.green.opacity(0.15) : Color.blue.opacity(0.15))
-                                .foregroundColor(agreement.status == "Quitado" ? .green : .blue)
-                                .cornerRadius(8)
-                        }
-
-                        HStack(spacing: 16) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Valor Original")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                Text(agreement.originalAmount.currencyFormatted)
-                                    .font(.subheadline)
-                                    .strikethrough()
-                                    .foregroundColor(.secondary)
-                            }
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Valor Acordado")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                Text(agreement.agreedAmount.currencyFormatted)
-                                    .font(.subheadline)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.green)
-                            }
-                        }
-
-                        // Progress Bar
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text("Parcelas: \(agreement.paidInstallments) de \(agreement.installments)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                                Text("\(Int(Double(agreement.paidInstallments) / Double(agreement.installments) * 100))%")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
-                            }
-                            ProgressView(value: Double(agreement.paidInstallments), total: Double(agreement.installments))
-                                .tint(.blue)
+                                .foregroundColor(.green)
                         }
                     }
-                    .padding(.vertical, 6)
+
+                    // Progress Bar
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Parcelas: \(agreement.paidInstallments) de \(agreement.installments)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(Int(Double(agreement.paidInstallments) / Double(agreement.installments) * 100))%")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                        }
+                        ProgressView(value: Double(agreement.paidInstallments), total: Double(agreement.installments))
+                            .tint(.blue)
+                    }
                 }
+                .padding(.vertical, 6)
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Acordos de Cobrança")
-            .toolbar {
-                Button {
-                    showingNewAgreementSheet = true
-                } label: {
-                    Image(systemName: "handshake.fill")
-                }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Acordos de Cobrança")
+        .toolbar {
+            Button {
+                showingNewAgreementSheet = true
+            } label: {
+                Image(systemName: "handshake.fill")
             }
-            .sheet(isPresented: $showingNewAgreementSheet) {
-                NewAgreementSheetView()
-            }
+        }
+        .sheet(isPresented: $showingNewAgreementSheet) {
+            NewAgreementSheetView()
         }
     }
 }

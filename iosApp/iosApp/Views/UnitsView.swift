@@ -19,79 +19,77 @@ struct UnitsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack {
-                // Filter chips
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        FilterChip(title: "Todas", isSelected: selectedStatus == nil) {
-                            selectedStatus = nil
-                        }
-                        ForEach(UnitStatus.allCases, id: \.self) { status in
-                            FilterChip(title: status.rawValue, isSelected: selectedStatus == status) {
-                                selectedStatus = status
-                            }
+        VStack {
+            // Filter chips
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    FilterChip(title: "Todas", isSelected: selectedStatus == nil) {
+                        selectedStatus = nil
+                    }
+                    ForEach(UnitStatus.allCases, id: \.self) { status in
+                        FilterChip(title: status.rawValue, isSelected: selectedStatus == status) {
+                            selectedStatus = status
                         }
                     }
-                    .padding(.horizontal)
                 }
-                .padding(.vertical, 8)
+                .padding(.horizontal)
+            }
+            .padding(.vertical, 8)
 
-                List {
-                    ForEach(filteredUnits) { unit in
-                        HStack(spacing: 16) {
-                            VStack {
-                                Text(unit.block)
-                                    .font(.caption2)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.blue)
-                                    .cornerRadius(4)
-                                Text(unit.number)
-                                    .font(.title3)
-                                    .fontWeight(.bold)
-                            }
-                            .frame(width: 50)
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(unit.residentName)
-                                    .font(.headline)
-                                Text("Tel: \(unit.phone) • Vagas: \(unit.parkingSpaces)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Spacer()
-
-                            Text(unit.status.rawValue)
+            List {
+                ForEach(filteredUnits) { unit in
+                    HStack(spacing: 16) {
+                        VStack {
+                            Text(unit.block)
                                 .font(.caption2)
                                 .fontWeight(.bold)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(statusColor(unit.status).opacity(0.15))
-                                .foregroundColor(statusColor(unit.status))
-                                .cornerRadius(8)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.blue)
+                                .cornerRadius(4)
+                            Text(unit.number)
+                                .font(.title3)
+                                .fontWeight(.bold)
                         }
-                        .padding(.vertical, 4)
+                        .frame(width: 50)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(unit.residentName)
+                                .font(.headline)
+                            Text("Tel: \(unit.phone) • Vagas: \(unit.parkingSpaces)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        Text(unit.status.rawValue)
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(statusColor(unit.status).opacity(0.15))
+                            .foregroundColor(statusColor(unit.status))
+                            .cornerRadius(8)
                     }
-                }
-                .listStyle(.insetGrouped)
-            }
-            .searchable(text: $searchText, prompt: "Buscar por número, bloco ou morador")
-            .navigationTitle("Unidades e Moradores")
-            .toolbar {
-                Button {
-                    showingAddUnitSheet = true
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
+                    .padding(.vertical, 4)
                 }
             }
-            .sheet(isPresented: $showingAddUnitSheet) {
-                AddUnitSheetView()
+            .listStyle(.insetGrouped)
+        }
+        .searchable(text: $searchText, prompt: "Buscar por número, bloco ou morador")
+        .navigationTitle("Unidades e Moradores")
+        .toolbar {
+            Button {
+                showingAddUnitSheet = true
+            } label: {
+                Image(systemName: "plus.circle.fill")
+                    .font(.title3)
             }
+        }
+        .sheet(isPresented: $showingAddUnitSheet) {
+            AddUnitSheetView()
         }
     }
 

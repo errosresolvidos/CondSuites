@@ -5,61 +5,59 @@ struct LawsuitsView: View {
     @State private var showingAddLawsuitSheet = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(appState.lawsuits) { lawsuit in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Processo: \(lawsuit.processNumber)")
-                                .font(.caption)
-                                .fontWeight(.bold)
-                                .foregroundColor(.blue)
-                            Spacer()
-                            Text(lawsuit.status)
-                                .font(.caption2)
-                                .fontWeight(.bold)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.purple.opacity(0.12))
-                                .foregroundColor(.purple)
-                                .cornerRadius(6)
-                        }
+        List {
+            ForEach(appState.lawsuits) { lawsuit in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Processo: \(lawsuit.processNumber)")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundColor(.blue)
+                        Spacer()
+                        Text(lawsuit.status)
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.purple.opacity(0.12))
+                            .foregroundColor(.purple)
+                            .cornerRadius(6)
+                    }
 
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Unidade \(lawsuit.unitNumber)")
-                                    .font(.headline)
-                                Text(lawsuit.court)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            VStack(alignment: .trailing, spacing: 2) {
-                                Text("Valor da Causa")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                Text(lawsuit.amount.currencyFormatted)
-                                    .font(.subheadline)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.red)
-                            }
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Unidade \(lawsuit.unitNumber)")
+                                .font(.headline)
+                            Text(lawsuit.court)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("Valor da Causa")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text(lawsuit.amount.currencyFormatted)
+                                .font(.subheadline)
+                                .fontWeight(.bold)
+                                .foregroundColor(.red)
                         }
                     }
-                    .padding(.vertical, 4)
                 }
+                .padding(.vertical, 4)
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Ações Judiciais")
-            .toolbar {
-                Button {
-                    showingAddLawsuitSheet = true
-                } label: {
-                    Image(systemName: "gavel")
-                }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Ações Judiciais")
+        .toolbar {
+            Button {
+                showingAddLawsuitSheet = true
+            } label: {
+                Image(systemName: "gavel")
             }
-            .sheet(isPresented: $showingAddLawsuitSheet) {
-                AddLawsuitSheetView()
-            }
+        }
+        .sheet(isPresented: $showingAddLawsuitSheet) {
+            AddLawsuitSheetView()
         }
     }
 }

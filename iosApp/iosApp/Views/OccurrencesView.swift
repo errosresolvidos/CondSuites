@@ -28,85 +28,83 @@ struct OccurrencesView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack {
-                // Segmented Control
-                Picker("Filtro", selection: $selectedStatusFilter) {
-                    ForEach(statusOptions, id: \.self) { option in
-                        Text(option).tag(option)
-                    }
+        VStack {
+            // Segmented Control
+            Picker("Filtro", selection: $selectedStatusFilter) {
+                ForEach(statusOptions, id: \.self) { option in
+                    Text(option).tag(option)
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.top, 8)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top, 8)
 
-                List {
-                    ForEach(filteredOccurrences) { occurrence in
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text(occurrence.title)
-                                    .font(.headline)
-                                Spacer()
-                                Text(occurrence.priority.rawValue)
-                                    .font(.caption2)
-                                    .fontWeight(.bold)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(priorityColor(occurrence.priority).opacity(0.15))
-                                    .foregroundColor(priorityColor(occurrence.priority))
-                                    .cornerRadius(6)
-                            }
+            List {
+                ForEach(filteredOccurrences) { occurrence in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(occurrence.title)
+                                .font(.headline)
+                            Spacer()
+                            Text(occurrence.priority.rawValue)
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(priorityColor(occurrence.priority).opacity(0.15))
+                                .foregroundColor(priorityColor(occurrence.priority))
+                                .cornerRadius(6)
+                        }
 
-                            Text(occurrence.description)
-                                .font(.subheadline)
+                        Text(occurrence.description)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+
+                        HStack {
+                            Label(occurrence.unit, systemName: "house")
+                                .font(.caption)
+                                .foregroundColor(.blue)
+
+                            Spacer()
+
+                            Label(occurrence.status.rawValue, systemName: "clock")
+                                .font(.caption)
                                 .foregroundColor(.secondary)
-                                .lineLimit(2)
-
-                            HStack {
-                                Label(occurrence.unit, systemName: "house")
-                                    .font(.caption)
-                                    .foregroundColor(.blue)
-
-                                Spacer()
-
-                                Label(occurrence.status.rawValue, systemName: "clock")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 6)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                appState.occurrences.removeAll { $0.id == occurrence.id }
-                            } label: {
-                                Label("Excluir", systemName: "trash")
-                            }
-
-                            Button {
-                                if let idx = appState.occurrences.firstIndex(where: { $0.id == occurrence.id }) {
-                                    appState.occurrences[idx].status = .resolved
-                                }
-                            } label: {
-                                Label("Concluir", systemName: "checkmark.circle")
-                            }
-                            .tint(.green)
                         }
                     }
+                    .padding(.vertical, 6)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            appState.occurrences.removeAll { $0.id == occurrence.id }
+                        } label: {
+                            Label("Excluir", systemName: "trash")
+                        }
+
+                        Button {
+                            if let idx = appState.occurrences.firstIndex(where: { $0.id == occurrence.id }) {
+                                appState.occurrences[idx].status = .resolved
+                            }
+                        } label: {
+                            Label("Concluir", systemName: "checkmark.circle")
+                        }
+                        .tint(.green)
+                    }
                 }
-                .listStyle(.insetGrouped)
             }
-            .searchable(text: $searchText, prompt: "Pesquisar ocorrências")
-            .navigationTitle("Ocorrências Operacionais")
-            .toolbar {
-                Button {
-                    showingRegisterSheet = true
-                } label: {
-                    Image(systemName: "plus")
-                }
+            .listStyle(.insetGrouped)
+        }
+        .searchable(text: $searchText, prompt: "Pesquisar ocorrências")
+        .navigationTitle("Ocorrências Operacionais")
+        .toolbar {
+            Button {
+                showingRegisterSheet = true
+            } label: {
+                Image(systemName: "plus")
             }
-            .sheet(isPresented: $showingRegisterSheet) {
-                RegisterOccurrenceView()
-            }
+        }
+        .sheet(isPresented: $showingRegisterSheet) {
+            RegisterOccurrenceView()
         }
     }
 

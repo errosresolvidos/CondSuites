@@ -5,63 +5,61 @@ struct OvertimeView: View {
     @State private var showingAddOvertimeSheet = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(appState.overtimeRecords) { record in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(record.employeeName)
-                                    .font(.headline)
-                                Text(record.role)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Spacer()
-
-                            Text("\(record.hours, specifier: "%.1f")h")
-                                .font(.title3)
-                                .fontWeight(.bold)
-                                .foregroundColor(.purple)
+        List {
+            ForEach(appState.overtimeRecords) { record in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(record.employeeName)
+                                .font(.headline)
+                            Text(record.role)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
 
-                        Text("Motivo: \(record.reason)")
-                            .font(.subheadline)
+                        Spacer()
+
+                        Text("\(String(format: "%.1f", record.hours))h")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.purple)
+                    }
+
+                    Text("Motivo: \(record.reason)")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+
+                    HStack {
+                        Text(record.date.formatted(date: .numeric, time: .omitted))
+                            .font(.caption2)
                             .foregroundColor(.secondary)
 
-                        HStack {
-                            Text(record.date.formatted(date: .numeric, time: .omitted))
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                        Spacer()
 
-                            Spacer()
-
-                            Text(record.status)
-                                .font(.caption2)
-                                .fontWeight(.bold)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(record.status == "Aprovado" ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
-                                .foregroundColor(record.status == "Aprovado" ? .green : .orange)
-                                .cornerRadius(6)
-                        }
+                        Text(record.status)
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(record.status == "Aprovado" ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
+                            .foregroundColor(record.status == "Aprovado" ? .green : .orange)
+                            .cornerRadius(6)
                     }
-                    .padding(.vertical, 4)
                 }
+                .padding(.vertical, 4)
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Horas Extras")
-            .toolbar {
-                Button {
-                    showingAddOvertimeSheet = true
-                } label: {
-                    Image(systemName: "clock.badge.plus")
-                }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Horas Extras")
+        .toolbar {
+            Button {
+                showingAddOvertimeSheet = true
+            } label: {
+                Image(systemName: "clock.badge.plus")
             }
-            .sheet(isPresented: $showingAddOvertimeSheet) {
-                AddOvertimeSheetView()
-            }
+        }
+        .sheet(isPresented: $showingAddOvertimeSheet) {
+            AddOvertimeSheetView()
         }
     }
 }

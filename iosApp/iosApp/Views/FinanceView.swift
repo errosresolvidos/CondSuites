@@ -18,99 +18,97 @@ struct FinanceView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Balance Summary Header Card
-                VStack(spacing: 12) {
-                    Text("Saldo Geral do Condomínio")
-                        .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.8))
+        VStack(spacing: 0) {
+            // Balance Summary Header Card
+            VStack(spacing: 12) {
+                Text("Saldo Geral do Condomínio")
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.8))
 
-                    Text(netBalance.currencyFormatted)
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                Text(netBalance.currencyFormatted)
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
 
-                    HStack(spacing: 24) {
-                        HStack {
-                            Image(systemName: "arrow.down.circle.fill")
-                                .foregroundColor(.green)
-                            VStack(alignment: .leading) {
-                                Text("Receitas")
-                                    .font(.caption2)
-                                    .foregroundColor(.white.opacity(0.8))
-                                Text(totalIncome.currencyFormatted)
-                                    .font(.footnote)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
-                            }
-                        }
-
-                        HStack {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .foregroundColor(.red)
-                            VStack(alignment: .leading) {
-                                Text("Despesas")
-                                    .font(.caption2)
-                                    .foregroundColor(.white.opacity(0.8))
-                                Text(totalExpenses.currencyFormatted)
-                                    .font(.footnote)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
-                            }
-                        }
-                    }
-                    .padding(.top, 4)
-                }
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(LinearGradient(colors: [Color.blue, Color.indigo], startPoint: .top, endPoint: .bottom))
-
-                Picker("Lançamentos", selection: $selectedTab) {
-                    Text("Todos").tag(0)
-                    Text("Receitas").tag(1)
-                    Text("Despesas").tag(2)
-                }
-                .pickerStyle(.segmented)
-                .padding()
-
-                List {
-                    ForEach(filteredRecords) { record in
-                        HStack {
-                            Image(systemName: record.isExpense ? "minus.circle.fill" : "plus.circle.fill")
-                                .font(.title2)
-                                .foregroundColor(record.isExpense ? .red : .green)
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(record.title)
-                                    .font(.headline)
-                                Text("\(record.category) • \(record.status)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Spacer()
-
-                            Text(record.amount.currencyFormatted)
-                                .font(.subheadline)
+                HStack(spacing: 24) {
+                    HStack {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundColor(.green)
+                        VStack(alignment: .leading) {
+                            Text("Receitas")
+                                .font(.caption2)
+                                .foregroundColor(.white.opacity(0.8))
+                            Text(totalIncome.currencyFormatted)
+                                .font(.footnote)
                                 .fontWeight(.bold)
-                                .foregroundColor(record.isExpense ? .red : .green)
+                                .foregroundColor(.white)
                         }
-                        .padding(.vertical, 4)
+                    }
+
+                    HStack {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .foregroundColor(.red)
+                        VStack(alignment: .leading) {
+                            Text("Despesas")
+                                .font(.caption2)
+                                .foregroundColor(.white.opacity(0.8))
+                            Text(totalExpenses.currencyFormatted)
+                                .font(.footnote)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                        }
                     }
                 }
-                .listStyle(.insetGrouped)
+                .padding(.top, 4)
             }
-            .navigationTitle("Financeiro & Contas")
-            .toolbar {
-                Button {
-                    showingAddRecordSheet = true
-                } label: {
-                    Image(systemName: "plus")
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(LinearGradient(colors: [Color.blue, Color.indigo], startPoint: .top, endPoint: .bottom))
+
+            Picker("Lançamentos", selection: $selectedTab) {
+                Text("Todos").tag(0)
+                Text("Receitas").tag(1)
+                Text("Despesas").tag(2)
+            }
+            .pickerStyle(.segmented)
+            .padding()
+
+            List {
+                ForEach(filteredRecords) { record in
+                    HStack {
+                        Image(systemName: record.isExpense ? "minus.circle.fill" : "plus.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(record.isExpense ? .red : .green)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(record.title)
+                                .font(.headline)
+                            Text("\(record.category) • \(record.status)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        Text(record.amount.currencyFormatted)
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(record.isExpense ? .red : .green)
+                    }
+                    .padding(.vertical, 4)
                 }
             }
-            .sheet(isPresented: $showingAddRecordSheet) {
-                AddFinanceRecordSheetView()
+            .listStyle(.insetGrouped)
+        }
+        .navigationTitle("Financeiro & Contas")
+        .toolbar {
+            Button {
+                showingAddRecordSheet = true
+            } label: {
+                Image(systemName: "plus")
             }
+        }
+        .sheet(isPresented: $showingAddRecordSheet) {
+            AddFinanceRecordSheetView()
         }
     }
 
