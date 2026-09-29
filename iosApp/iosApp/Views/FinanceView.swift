@@ -26,7 +26,7 @@ struct FinanceView: View {
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.8))
 
-                    Text(netBalance, format: .currency(code: "BRL"))
+                    Text(netBalance.currencyFormatted)
                         .font(.system(size: 32, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
 
@@ -38,7 +38,7 @@ struct FinanceView: View {
                                 Text("Receitas")
                                     .font(.caption2)
                                     .foregroundColor(.white.opacity(0.8))
-                                Text(totalIncome, format: .currency(code: "BRL"))
+                                Text(totalIncome.currencyFormatted)
                                     .font(.footnote)
                                     .fontWeight(.bold)
                                     .foregroundColor(.white)
@@ -52,7 +52,7 @@ struct FinanceView: View {
                                 Text("Despesas")
                                     .font(.caption2)
                                     .foregroundColor(.white.opacity(0.8))
-                                Text(totalExpenses, format: .currency(code: "BRL"))
+                                Text(totalExpenses.currencyFormatted)
                                     .font(.footnote)
                                     .fontWeight(.bold)
                                     .foregroundColor(.white)
@@ -90,7 +90,7 @@ struct FinanceView: View {
 
                             Spacer()
 
-                            Text(record.amount, format: .currency(code: "BRL"))
+                            Text(record.amount.currencyFormatted)
                                 .font(.subheadline)
                                 .fontWeight(.bold)
                                 .foregroundColor(record.isExpense ? .red : .green)

@@ -38,7 +38,7 @@ struct LawsuitsView: View {
                                 Text("Valor da Causa")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
-                                Text(lawsuit.amount, format: .currency(code: "BRL"))
+                                Text(lawsuit.amount.currencyFormatted)
                                     .font(.subheadline)
                                     .fontWeight(.bold)
                                     .foregroundColor(.red)

@@ -1,6 +1,17 @@
 import Foundation
 import Combine
 
+// MARK: - Currency Helper Extension
+extension Double {
+    var currencyFormatted: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "BRL"
+        formatter.locale = Locale(identifier: "pt_BR")
+        return formatter.string(from: NSNumber(value: self)) ?? String(format: "R$ %.2f", self)
+    }
+}
+
 // MARK: - User Model
 struct User: Identifiable, Equatable {
     let id = UUID()

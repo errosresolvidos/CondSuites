@@ -31,7 +31,7 @@ struct ContractsView: View {
                                 Text("Valor Mensal")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
-                                Text(contract.monthlyValue, format: .currency(code: "BRL"))
+                                Text(contract.monthlyValue.currencyFormatted)
                                     .font(.subheadline)
                                     .fontWeight(.bold)
                             }

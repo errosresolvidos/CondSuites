@@ -9,7 +9,7 @@ struct ElevatorsView: View {
                 ForEach(appState.elevators) { elevator in
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Image(systemName: "elevator")
+                            Image(systemName: "arrow.up.and.down.square.fill")
                                 .font(.title2)
                                 .foregroundColor(.blue)
 

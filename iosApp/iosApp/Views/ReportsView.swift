@@ -45,14 +45,14 @@ struct ReportsView: View {
                     }
 
                     NavigationLink {
-                        ReportDetailView(title: "Relatório de Elevadores", icon: "elevator", color: .blue) {
+                        ReportDetailView(title: "Relatório de Elevadores", icon: "arrow.up.and.down.square.fill", color: .blue) {
                             VStack(alignment: .leading, spacing: 12) {
                                 ReportMetricRow(title: "Elevadores Operacionais", value: "\(appState.elevators.filter { $0.status == .operational }.count)/\(appState.elevators.count)")
                                 ReportMetricRow(title: "Manutenções Pendentes", value: "\(appState.elevators.filter { $0.status != .operational }.count)")
                             }
                         }
                     } label: {
-                        Label("Relatório de Elevadores", systemName: "elevator")
+                        Label("Relatório de Elevadores", systemName: "arrow.up.and.down.square.fill")
                             .foregroundColor(.primary)
                     }
 

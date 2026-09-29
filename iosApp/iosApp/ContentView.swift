@@ -67,7 +67,7 @@ struct MoreMenuView: View {
                     NavigationLink {
                         ElevatorsView()
                     } label: {
-                        Label("Gestão de Elevadores", systemName: "elevator")
+                        Label("Gestão de Elevadores", systemName: "arrow.up.and.down.square.fill")
                     }
 
                     NavigationLink {

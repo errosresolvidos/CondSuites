@@ -31,7 +31,7 @@ struct HomeView: View {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
                         MetricCard(title: "Inadimplência", value: "12,5%", icon: "percent", color: .orange)
                         MetricCard(title: "Ocorrências", value: "\(appState.occurrences.filter { $0.status != .resolved }.count) Abertas", icon: "exclamationmark.triangle.fill", color: .red)
-                        MetricCard(title: "Elevadores", value: "\(appState.elevators.filter { $0.status == .operational }.count)/\(appState.elevators.count) OK", icon: "arrow.up.arrow.down", color: .green)
+                        MetricCard(title: "Elevadores", value: "\(appState.elevators.filter { $0.status == .operational }.count)/\(appState.elevators.count) OK", icon: "arrow.up.and.down.square.fill", color: .green)
                         MetricCard(title: "Horas Extras", value: "5.5h Mês", icon: "clock.fill", color: .purple)
                     }
 
@@ -101,7 +101,7 @@ struct HomeView: View {
 
                         ForEach(appState.elevators) { elevator in
                             HStack {
-                                Image(systemName: "elevator")
+                                Image(systemName: "arrow.up.and.down.square.fill")
                                     .foregroundColor(.blue)
                                 VStack(alignment: .leading) {
                                     Text("\(elevator.name) - \(elevator.block)")

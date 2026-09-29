@@ -82,16 +82,14 @@ struct OccurrencesView: View {
                                 Label("Excluir", systemName: "trash")
                             }
 
-                            if occurrence.status != .resolved {
-                                Button {
-                                    if let idx = appState.occurrences.firstIndex(where: { $0.id == occurrence.id }) {
-                                        appState.occurrences[idx].status = .resolved
-                                    }
-                                } label: {
-                                    Label("Concluir", systemName: "checkmark.circle")
+                            Button {
+                                if let idx = appState.occurrences.firstIndex(where: { $0.id == occurrence.id }) {
+                                    appState.occurrences[idx].status = .resolved
                                 }
-                                .tint(.green)
+                            } label: {
+                                Label("Concluir", systemName: "checkmark.circle")
                             }
+                            .tint(.green)
                         }
                     }
                 }
