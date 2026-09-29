@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct UnitsView: View {
     @EnvironmentObject var appState: AppState
@@ -117,7 +118,7 @@ struct FilterChip: View {
                 .fontWeight(isSelected ? .bold : .regular)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(isSelected ? Color.blue : Color(.secondarySystemBackground))
+                .background(isSelected ? Color.blue : Color(uiColor: .secondarySystemBackground))
                 .foregroundColor(isSelected ? .white : .primary)
                 .cornerRadius(18)
         }

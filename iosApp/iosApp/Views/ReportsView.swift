@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ReportsView: View {
     @EnvironmentObject var appState: AppState
@@ -24,7 +25,7 @@ struct ReportsView: View {
                         ReportDetailView(title: "Relatório de Acordos", icon: "handshake.fill", color: .green) {
                             VStack(alignment: .leading, spacing: 12) {
                                 ReportMetricRow(title: "Total de Acordos Ativos", value: "\(appState.agreements.count)")
-                                ReportMetricRow(title: "Valor Total Renegociado", value: String(format: "R$ %.2f", appState.agreements.reduce(0) { $0 + $1.agreedAmount }))
+                                ReportMetricRow(title: "Valor Total Renegociado", value: appState.agreements.reduce(0) { $0 + $1.agreedAmount }.currencyFormatted)
                             }
                         }
                     } label: {
@@ -36,7 +37,7 @@ struct ReportsView: View {
                         ReportDetailView(title: "Relatório de Ações Judiciais", icon: "gavel", color: .purple) {
                             VStack(alignment: .leading, spacing: 12) {
                                 ReportMetricRow(title: "Processos em Andamento", value: "\(appState.lawsuits.count)")
-                                ReportMetricRow(title: "Montante em Cobrança Judicial", value: String(format: "R$ %.2f", appState.lawsuits.reduce(0) { $0 + $1.amount }))
+                                ReportMetricRow(title: "Montante em Cobrança Judicial", value: appState.lawsuits.reduce(0) { $0 + $1.amount }.currencyFormatted)
                             }
                         }
                     } label: {
@@ -107,7 +108,7 @@ struct ReportDetailView<Content: View>: View {
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.secondarySystemBackground))
+                .background(Color(uiColor: .secondarySystemBackground))
                 .cornerRadius(16)
 
                 VStack(alignment: .leading, spacing: 16) {
@@ -116,7 +117,7 @@ struct ReportDetailView<Content: View>: View {
                     content
                 }
                 .padding()
-                .background(Color(.systemBackground))
+                .background(Color(uiColor: .systemBackground))
                 .cornerRadius(16)
                 .shadow(color: .black.opacity(0.04), radius: 6, x: 0, y: 2)
 

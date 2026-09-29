@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct HomeView: View {
     @EnvironmentObject var appState: AppState
@@ -24,7 +25,7 @@ struct HomeView: View {
                             .foregroundColor(.blue)
                     }
                     .padding()
-                    .background(Color(.secondarySystemBackground))
+                    .background(Color(uiColor: .secondarySystemBackground))
                     .cornerRadius(16)
 
                     // Metric Summary Cards Grid
@@ -88,7 +89,7 @@ struct HomeView: View {
                                     .cornerRadius(8)
                             }
                             .padding()
-                            .background(Color(.systemBackground))
+                            .background(Color(uiColor: .systemBackground))
                             .cornerRadius(12)
                             .shadow(color: .black.opacity(0.04), radius: 5, x: 0, y: 2)
                         }
@@ -118,7 +119,7 @@ struct HomeView: View {
                                     .foregroundColor(elevator.status == .operational ? .green : (elevator.status == .maintenance ? .orange : .red))
                             }
                             .padding()
-                            .background(Color(.systemBackground))
+                            .background(Color(uiColor: .systemBackground))
                             .cornerRadius(12)
                             .shadow(color: .black.opacity(0.03), radius: 3, x: 0, y: 1)
                         }
@@ -157,7 +158,7 @@ struct MetricCard: View {
                 .foregroundColor(.secondary)
         }
         .padding()
-        .background(Color(.systemBackground))
+        .background(Color(uiColor: .systemBackground))
         .cornerRadius(16)
         .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 3)
     }
@@ -181,7 +182,7 @@ struct QuickActionButton: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(Color(.systemBackground))
+            .background(Color(uiColor: .systemBackground))
             .cornerRadius(20)
             .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
         }
