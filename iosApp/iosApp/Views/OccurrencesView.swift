@@ -62,13 +62,13 @@ struct OccurrencesView: View {
                             .lineLimit(2)
 
                         HStack {
-                            Label(occurrence.unit, systemName: "house")
+                            Label(occurrence.unit, systemImage: "house")
                                 .font(.caption)
                                 .foregroundColor(.blue)
 
                             Spacer()
 
-                            Label(occurrence.status.rawValue, systemName: "clock")
+                            Label(occurrence.status.rawValue, systemImage: "clock")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -78,7 +78,7 @@ struct OccurrencesView: View {
                         Button(role: .destructive) {
                             appState.occurrences.removeAll { $0.id == occurrence.id }
                         } label: {
-                            Label("Excluir", systemName: "trash")
+                            Label("Excluir", systemImage: "trash")
                         }
 
                         Button {
@@ -86,7 +86,7 @@ struct OccurrencesView: View {
                                 appState.occurrences[idx].status = .resolved
                             }
                         } label: {
-                            Label("Concluir", systemName: "checkmark.circle")
+                            Label("Concluir", systemImage: "checkmark.circle")
                         }
                         .tint(.green)
                     }

@@ -35,7 +35,7 @@ struct SettingsView: View {
                     Button {
                         showingUserManagementSheet = true
                     } label: {
-                        Label("Gestão de Usuários e Permissões", systemName: "person.2.fill")
+                        Label("Gestão de Usuários e Permissões", systemImage: "person.2.fill")
                             .foregroundColor(.primary)
                     }
                 }
@@ -47,7 +47,7 @@ struct SettingsView: View {
                 } label: {
                     HStack {
                         Spacer()
-                        Label("Sair da Conta", systemName: "arrow.right.square")
+                        Label("Sair da Conta", systemImage: "arrow.right.square")
                             .fontWeight(.bold)
                         Spacer()
                     }

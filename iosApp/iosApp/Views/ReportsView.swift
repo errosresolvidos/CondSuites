@@ -13,7 +13,7 @@ struct ReportsView: View {
                         ReportMetricRow(title: "Ocorrências Concluídas", value: "\(appState.occurrences.filter { $0.status == .resolved }.count)")
                     }
                 }) {
-                    Label("Relatório de Ocorrências", systemName: "chart.bar.doc.horizontal.fill")
+                    Label("Relatório de Ocorrências", systemImage: "chart.bar.doc.horizontal.fill")
                         .foregroundColor(.primary)
                 }
 
@@ -23,7 +23,7 @@ struct ReportsView: View {
                         ReportMetricRow(title: "Valor Total Renegociado", value: appState.agreements.reduce(0) { $0 + $1.agreedAmount }.currencyFormatted)
                     }
                 }) {
-                    Label("Relatório de Acordos", systemName: "handshake.fill")
+                    Label("Relatório de Acordos", systemImage: "handshake.fill")
                         .foregroundColor(.primary)
                 }
 
@@ -33,7 +33,7 @@ struct ReportsView: View {
                         ReportMetricRow(title: "Montante em Cobrança Judicial", value: appState.lawsuits.reduce(0) { $0 + $1.amount }.currencyFormatted)
                     }
                 }) {
-                    Label("Relatório de Ajuizados", systemName: "gavel")
+                    Label("Relatório de Ajuizados", systemImage: "gavel")
                         .foregroundColor(.primary)
                 }
 
@@ -43,7 +43,7 @@ struct ReportsView: View {
                         ReportMetricRow(title: "Manutenções Pendentes", value: "\(appState.elevators.filter { $0.status != .operational }.count)")
                     }
                 }) {
-                    Label("Relatório de Elevadores", systemName: "arrow.up.and.down.square.fill")
+                    Label("Relatório de Elevadores", systemImage: "arrow.up.and.down.square.fill")
                         .foregroundColor(.primary)
                 }
 
@@ -53,7 +53,7 @@ struct ReportsView: View {
                         ReportMetricRow(title: "Registros Pendentes de Aprovação", value: "\(appState.overtimeRecords.filter { $0.status == "Pendente" }.count)")
                     }
                 }) {
-                    Label("Relatório de Horas Extras", systemName: "clock.fill")
+                    Label("Relatório de Horas Extras", systemImage: "clock.fill")
                         .foregroundColor(.primary)
                 }
             }

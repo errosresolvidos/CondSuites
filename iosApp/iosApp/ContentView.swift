@@ -20,33 +20,33 @@ struct MainTabView: View {
         TabView {
             HomeView()
                 .tabItem {
-                    Label("Início", systemName: "house.fill")
+                    Label("Início", systemImage: "house.fill")
                 }
 
             NavigationStack {
                 UnitsView()
             }
             .tabItem {
-                Label("Unidades", systemName: "building.2.fill")
+                Label("Unidades", systemImage: "building.2.fill")
             }
 
             NavigationStack {
                 OccurrencesView()
             }
             .tabItem {
-                Label("Ocorrências", systemName: "exclamationmark.triangle.fill")
+                Label("Ocorrências", systemImage: "exclamationmark.triangle.fill")
             }
 
             NavigationStack {
                 FinanceView()
             }
             .tabItem {
-                Label("Financeiro", systemName: "dollarsign.circle.fill")
+                Label("Financeiro", systemImage: "dollarsign.circle.fill")
             }
 
             MoreMenuView()
                 .tabItem {
-                    Label("Mais", systemName: "ellipsis.circle.fill")
+                    Label("Mais", systemImage: "ellipsis.circle.fill")
                 }
         }
     }
@@ -59,35 +59,35 @@ struct MoreMenuView: View {
             List {
                 Section("Gestão & Operação") {
                     NavigationLink(destination: AgreementsView()) {
-                        Label("Acordos de Cobrança", systemName: "handshake.fill")
+                        Label("Acordos de Cobrança", systemImage: "handshake.fill")
                     }
 
                     NavigationLink(destination: LawsuitsView()) {
-                        Label("Ações Judiciais (Ajuizados)", systemName: "gavel")
+                        Label("Ações Judiciais (Ajuizados)", systemImage: "gavel")
                     }
 
                     NavigationLink(destination: ElevatorsView()) {
-                        Label("Gestão de Elevadores", systemName: "arrow.up.and.down.square.fill")
+                        Label("Gestão de Elevadores", systemImage: "arrow.up.and.down.square.fill")
                     }
 
                     NavigationLink(destination: ContractsView()) {
-                        Label("Contratos de Terceiros", systemName: "doc.text.fill")
+                        Label("Contratos de Terceiros", systemImage: "doc.text.fill")
                     }
 
                     NavigationLink(destination: OvertimeView()) {
-                        Label("Lançar Horas Extras", systemName: "clock.badge.plus")
+                        Label("Lançar Horas Extras", systemImage: "clock.badge.plus")
                     }
                 }
 
                 Section("Análises & Relatórios") {
                     NavigationLink(destination: ReportsView()) {
-                        Label("Relatórios Gerenciais", systemName: "chart.bar.doc.horizontal.fill")
+                        Label("Relatórios Gerenciais", systemImage: "chart.bar.doc.horizontal.fill")
                     }
                 }
 
                 Section("Ajustes") {
                     NavigationLink(destination: SettingsView()) {
-                        Label("Configurações", systemName: "gearshape.fill")
+                        Label("Configurações", systemImage: "gearshape.fill")
                     }
                 }
             }
