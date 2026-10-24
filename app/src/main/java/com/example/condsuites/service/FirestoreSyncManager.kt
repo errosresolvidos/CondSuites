@@ -4,12 +4,16 @@ import android.content.Context
 import android.net.Uri
 import com.example.condsuites.data.dao.AppDao
 import com.example.condsuites.data.model.AgreementEntity
+import com.example.condsuites.data.model.AgreementProgressEntity
 import com.example.condsuites.data.model.AuditLogEntity
 import com.example.condsuites.data.model.ContractEntity
 import com.example.condsuites.data.model.DelinquentEntity
+import com.example.condsuites.data.model.DelinquentProgressEntity
 import com.example.condsuites.data.model.DelinquencyHistoryEntity
 import com.example.condsuites.data.model.FinanceTransactionEntity
 import com.example.condsuites.data.model.LawsuitEntity
+import com.example.condsuites.data.model.LawsuitProgressEntity
+import com.example.condsuites.data.model.NotificationLogEntity
 import com.example.condsuites.data.model.OccurrenceAttachmentEntity
 import com.example.condsuites.data.model.OccurrenceAttachmentVoteEntity
 import com.example.condsuites.data.model.OccurrenceEntity
@@ -164,6 +168,66 @@ object FirestoreSyncManager {
             }
         } catch (e: Exception) {
             android.util.Log.e("FIRESTORE_SYNC", "Error in syncContract: ${e.message}")
+        }
+    }
+
+    fun syncAgreementProgress(progress: AgreementProgressEntity, isDelete: Boolean = false) {
+        try {
+            val db = firestore ?: return
+            val docRef = db.collection("agreement_progress").document(progress.id.toString())
+            val task = if (isDelete) docRef.delete() else docRef.set(progress)
+            task.addOnSuccessListener {
+                android.util.Log.d("FIRESTORE_SYNC", "Successfully synced agreement progress ${progress.id}")
+            }.addOnFailureListener { e ->
+                android.util.Log.e("FIRESTORE_SYNC", "Failed to sync agreement progress ${progress.id}: ${e.message}", e)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FIRESTORE_SYNC", "Error in syncAgreementProgress: ${e.message}")
+        }
+    }
+
+    fun syncDelinquentProgress(progress: DelinquentProgressEntity, isDelete: Boolean = false) {
+        try {
+            val db = firestore ?: return
+            val docRef = db.collection("delinquent_progress").document(progress.id.toString())
+            val task = if (isDelete) docRef.delete() else docRef.set(progress)
+            task.addOnSuccessListener {
+                android.util.Log.d("FIRESTORE_SYNC", "Successfully synced delinquent progress ${progress.id}")
+            }.addOnFailureListener { e ->
+                android.util.Log.e("FIRESTORE_SYNC", "Failed to sync delinquent progress ${progress.id}: ${e.message}", e)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FIRESTORE_SYNC", "Error in syncDelinquentProgress: ${e.message}")
+        }
+    }
+
+    fun syncLawsuitProgress(progress: LawsuitProgressEntity, isDelete: Boolean = false) {
+        try {
+            val db = firestore ?: return
+            val docRef = db.collection("lawsuit_progress").document(progress.id.toString())
+            val task = if (isDelete) docRef.delete() else docRef.set(progress)
+            task.addOnSuccessListener {
+                android.util.Log.d("FIRESTORE_SYNC", "Successfully synced lawsuit progress ${progress.id}")
+            }.addOnFailureListener { e ->
+                android.util.Log.e("FIRESTORE_SYNC", "Failed to sync lawsuit progress ${progress.id}: ${e.message}", e)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FIRESTORE_SYNC", "Error in syncLawsuitProgress: ${e.message}")
+        }
+    }
+
+    fun syncNotificationLog(log: NotificationLogEntity, isDelete: Boolean = false) {
+        try {
+            val db = firestore ?: return
+            val docRef = db.collection("notification_logs").document(log.id.toString())
+            val task = if (isDelete) docRef.delete() else docRef.set(log)
+            task.addOnSuccessListener {
+                android.util.Log.d("FIRESTORE_SYNC", "Successfully synced notification log ${log.id}")
+            }.addOnFailureListener { e ->
+                android.util.Log.e("FIRESTORE_SYNC", "Failed to sync notification log ${log.id}: ${e.message}", e)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FIRESTORE_SYNC", "Error in syncNotificationLog: ${e.message}")
         }
     }
 
@@ -550,6 +614,38 @@ object FirestoreSyncManager {
                     android.util.Log.e("FIRESTORE_SYNC", "Error pulling config_occurrence_types: ${e.message}")
                 }
 
+                try {
+                    val snap = com.google.android.gms.tasks.Tasks.await(db.collection("agreement_progress").get(), 10, TimeUnit.SECONDS)
+                    for (doc in snap.documents) {
+                        val item = doc.toObject(AgreementProgressEntity::class.java)
+                        if (item != null) dao.insertAgreementProgress(item)
+                    }
+                } catch (_: Exception) {}
+
+                try {
+                    val snap = com.google.android.gms.tasks.Tasks.await(db.collection("delinquent_progress").get(), 10, TimeUnit.SECONDS)
+                    for (doc in snap.documents) {
+                        val item = doc.toObject(DelinquentProgressEntity::class.java)
+                        if (item != null) dao.insertDelinquentProgress(item)
+                    }
+                } catch (_: Exception) {}
+
+                try {
+                    val snap = com.google.android.gms.tasks.Tasks.await(db.collection("lawsuit_progress").get(), 10, TimeUnit.SECONDS)
+                    for (doc in snap.documents) {
+                        val item = doc.toObject(LawsuitProgressEntity::class.java)
+                        if (item != null) dao.insertLawsuitProgress(item)
+                    }
+                } catch (_: Exception) {}
+
+                try {
+                    val snap = com.google.android.gms.tasks.Tasks.await(db.collection("notification_logs").get(), 10, TimeUnit.SECONDS)
+                    for (doc in snap.documents) {
+                        val item = doc.toObject(NotificationLogEntity::class.java)
+                        if (item != null) dao.insertNotificationLog(item)
+                    }
+                } catch (_: Exception) {}
+
                 android.util.Log.d("FIRESTORE_SYNC", "Sequential pull from cloud finished successfully.")
             } catch (e: Exception) {
                 android.util.Log.e("FIRESTORE_SYNC", "Error in sequential pull: ${e.message}", e)
@@ -811,6 +907,90 @@ object FirestoreSyncManager {
                             for (localLawsuit in localLawsuits) {
                                 if (!cloudIds.contains(localLawsuit.id)) {
                                     dao.deleteLawsuit(localLawsuit.id)
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            db.collection("agreement_progress").addSnapshotListener { snapshot, error ->
+                if (error == null && snapshot != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val cloudIds = mutableSetOf<Long>()
+                            for (doc in snapshot.documents) {
+                                val item = doc.toObject(AgreementProgressEntity::class.java)
+                                if (item != null) {
+                                    cloudIds.add(item.id)
+                                    dao.insertAgreementProgress(item)
+                                }
+                            }
+                            val localList = dao.getAllAgreementProgress()
+                            for (localItem in localList) {
+                                if (!cloudIds.contains(localItem.id)) {
+                                    dao.deleteAgreementProgress(localItem.id)
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            db.collection("delinquent_progress").addSnapshotListener { snapshot, error ->
+                if (error == null && snapshot != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val cloudIds = mutableSetOf<Long>()
+                            for (doc in snapshot.documents) {
+                                val item = doc.toObject(DelinquentProgressEntity::class.java)
+                                if (item != null) {
+                                    cloudIds.add(item.id)
+                                    dao.insertDelinquentProgress(item)
+                                }
+                            }
+                            val localList = dao.getAllDelinquentProgress()
+                            for (localItem in localList) {
+                                if (!cloudIds.contains(localItem.id)) {
+                                    dao.deleteDelinquentProgress(localItem.id)
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            db.collection("lawsuit_progress").addSnapshotListener { snapshot, error ->
+                if (error == null && snapshot != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val cloudIds = mutableSetOf<Long>()
+                            for (doc in snapshot.documents) {
+                                val item = doc.toObject(LawsuitProgressEntity::class.java)
+                                if (item != null) {
+                                    cloudIds.add(item.id)
+                                    dao.insertLawsuitProgress(item)
+                                }
+                            }
+                            val localList = dao.getAllLawsuitProgress()
+                            for (localItem in localList) {
+                                if (!cloudIds.contains(localItem.id)) {
+                                    dao.deleteLawsuitProgress(localItem.id)
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            db.collection("notification_logs").addSnapshotListener { snapshot, error ->
+                if (error == null && snapshot != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            for (doc in snapshot.documents) {
+                                val item = doc.toObject(NotificationLogEntity::class.java)
+                                if (item != null) {
+                                    dao.insertNotificationLog(item)
                                 }
                             }
                         } catch (_: Exception) {}

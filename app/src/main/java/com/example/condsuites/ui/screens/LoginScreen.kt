@@ -166,6 +166,12 @@ fun LoginScreen(dao: AppDao, onLoginSuccess: (UserEntity) -> Unit) {
                 ) {
                     Text("ENTRAR")
                 }
+
+                Text(
+                    text = "v2.1.2",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
             }
         }
     }

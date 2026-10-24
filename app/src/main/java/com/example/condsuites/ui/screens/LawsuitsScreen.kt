@@ -25,6 +25,7 @@ import com.example.condsuites.data.model.AgreementWithInstallments
 import com.example.condsuites.data.model.LawsuitEntity
 import com.example.condsuites.data.model.LawsuitProgressEntity
 import com.example.condsuites.data.model.LawsuitWithProgress
+import com.example.condsuites.service.FirestoreSyncManager
 import com.example.condsuites.ui.screens.reports.shareLawsuitReport
 import com.example.condsuites.utils.CurrencyVisualTransformation
 import com.example.condsuites.utils.ProcessNumberVisualTransformation
@@ -114,10 +115,16 @@ fun LawsuitsManagementScreen(lawsuits: List<LawsuitWithProgress>, agreements: Li
                             isFinished = item.lawsuit.isFinished,
                             progressUpdates = item.progress,
                             onAddProgress = { date, desc ->
-                                scope.launch { dao.insertLawsuitProgress(LawsuitProgressEntity(lawsuitId = item.lawsuit.id, date = date, description = desc)) }
+                                scope.launch {
+                                    val progId = dao.insertLawsuitProgress(LawsuitProgressEntity(lawsuitId = item.lawsuit.id, apartment = item.lawsuit.apartment, date = date, description = desc))
+                                    FirestoreSyncManager.syncLawsuitProgress(LawsuitProgressEntity(id = progId, lawsuitId = item.lawsuit.id, apartment = item.lawsuit.apartment, date = date, description = desc))
+                                }
                             },
                             onDeleteProgress = { progId ->
-                                scope.launch { dao.deleteLawsuitProgress(progId) }
+                                scope.launch {
+                                    dao.deleteLawsuitProgress(progId)
+                                    FirestoreSyncManager.syncLawsuitProgress(LawsuitProgressEntity(id = progId), isDelete = true)
+                                }
                             },
                             onEdit = {
                                 if (item.lawsuit.isFinished) lawsuitForEditWithPwd = item.lawsuit
@@ -210,25 +217,25 @@ fun LawsuitCard(
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.Top) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        ownerName.uppercase(),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.height(4.dp))
                     Surface(
                         color = if (isCondo) Color(0xFFBBDEFB) else Color(0xFFFFCDD2).copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(6.dp)
+                        shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
                             if (isCondo) "🏢 CONDOMÍNIO" else "🚪 UNIDADE: $apartment",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
                             color = if (isCondo) Color(0xFF0D47A1) else Color(0xFFB71C1C)
                         )
                     }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        ownerName.uppercase(),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 
                 Surface(

@@ -110,7 +110,8 @@ object NotificationUtils {
             } finally {
                 if (dao != null) {
                     try {
-                        dao.insertNotificationLog(NotificationLogEntity(title = title, message = body, status = status))
+                        val logId = dao.insertNotificationLog(NotificationLogEntity(title = title, message = body, status = status))
+                        FirestoreSyncManager.syncNotificationLog(NotificationLogEntity(id = logId, title = title, message = body, status = status))
                     } catch (_: Exception) {}
                 }
             }

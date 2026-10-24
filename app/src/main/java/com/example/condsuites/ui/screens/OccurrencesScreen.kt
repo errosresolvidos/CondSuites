@@ -753,6 +753,7 @@ fun OccurrenceCard(
     var showReplyDialog by remember { mutableStateOf(false) }
     var showBudgetDialog by remember { mutableStateOf(false) }
     var showEditHeaderDialog by remember { mutableStateOf(false) }
+    var showCloseConfirm by remember { mutableStateOf(false) }
     var messageWithOptions by remember { mutableStateOf<OccurrenceMessageEntity?>(null) }
     var messageToEdit by remember { mutableStateOf<OccurrenceMessageEntity?>(null) }
     var expanded by remember(occ.id, occ.status, occ.title) {
@@ -1055,7 +1056,7 @@ fun OccurrenceCard(
                                 Spacer(Modifier.width(6.dp))
                             }
 
-                            TextButton(onClick = { onUpdateStatus("FINALIZADA") }) {
+                            TextButton(onClick = { showCloseConfirm = true }) {
                                 Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text("Fechar")
@@ -1175,6 +1176,29 @@ fun OccurrenceCard(
         )
     }
 
+    if (showCloseConfirm) {
+        AlertDialog(
+            onDismissRequest = { showCloseConfirm = false },
+            title = { Text("Fechar Ocorrência") },
+            text = { Text("Deseja mesmo fechar a ocorrência \"${occ.title}\"?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showCloseConfirm = false
+                        onUpdateStatus("FINALIZADA")
+                    }
+                ) {
+                    Text("Fechar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCloseConfirm = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
     if (messageWithOptions != null) {
         val msg = messageWithOptions!!
         val isAdmin = currentUser.role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true)
@@ -1184,7 +1208,7 @@ fun OccurrenceCard(
         val elapsed = System.currentTimeMillis() - creationTime
         val isWithin20Min = elapsed in 0..(20 * 60 * 1000L)
         val canEdit = isSender && isWithin20Min && occ.status != "FINALIZADA" && occ.status != "ARQUIVADA" && msg.senderUsername != "SISTEMA"
-        val canDelete = (isAdmin || (isSender && isWithin20Min)) && msg.senderUsername != "SISTEMA"
+        val canDelete = if (msg.senderUsername == "SISTEMA") isAdmin else (isAdmin || (isSender && isWithin20Min))
 
         val remainingMinutes = if (isWithin20Min) {
             val rem = ((20 * 60 * 1000L) - elapsed) / 60000L + 1

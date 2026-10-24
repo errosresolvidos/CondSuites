@@ -283,7 +283,7 @@ fun UnitsListContent(
                 unit.floor == floorNum
             }
 
-            val fullText = "${unit.apartment} ${unit.ownerName} ${unit.phone} ${unit.email} ${unit.notes}".lowercase()
+            val fullText = "${unit.apartment} ${unit.ownerName} ${unit.residentType} ${unit.phone} ${unit.email} ${unit.notes}".lowercase()
             val matchesSearch = searchText.isBlank() || fullText.contains(searchText.lowercase())
 
             matchesStatus && matchesFloor && matchesSearch
@@ -308,7 +308,7 @@ fun UnitsListContent(
                         value = searchText,
                         onValueChange = { searchText = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Buscar por número, morador, fone...") },
+                        placeholder = { Text("Buscar...") },
                         leadingIcon = { Icon(Icons.Default.Search, null) },
                         trailingIcon = {
                             if (searchText.isNotEmpty()) {
@@ -323,39 +323,103 @@ fun UnitsListContent(
                         FilterChip(
                             selected = selectedStatusFilter == "Todos",
                             onClick = { selectedStatusFilter = "Todos" },
-                            label = { Text("Todos", style = MaterialTheme.typography.labelSmall) },
+                            label = {
+                                Icon(
+                                    imageVector = Icons.Default.Apps,
+                                    contentDescription = "Todos",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
                             modifier = Modifier.weight(1f)
                         )
                         FilterChip(
                             selected = selectedStatusFilter == "Cadastrados",
                             onClick = { selectedStatusFilter = "Cadastrados" },
-                            label = { Text("Cadastrados", style = MaterialTheme.typography.labelSmall) },
+                            label = {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Cadastrados",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF2E7D32),
+                                selectedLabelColor = Color.White,
+                                selectedLeadingIconColor = Color.White
+                            ),
                             modifier = Modifier.weight(1f)
                         )
                         FilterChip(
                             selected = selectedStatusFilter == "Incompletos",
                             onClick = { selectedStatusFilter = "Incompletos" },
-                            label = { Text("Incompletos", style = MaterialTheme.typography.labelSmall) },
+                            label = {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = "Incompletos",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFFF57C00),
+                                selectedLabelColor = Color.White,
+                                selectedLeadingIconColor = Color.White
+                            ),
                             modifier = Modifier.weight(1f)
                         )
                         FilterChip(
                             selected = selectedStatusFilter == "Pendentes",
                             onClick = { selectedStatusFilter = "Pendentes" },
-                            label = { Text("Pendentes", style = MaterialTheme.typography.labelSmall) },
+                            label = {
+                                Icon(
+                                    imageVector = Icons.Default.NotificationImportant,
+                                    contentDescription = "Pendentes",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFFD32F2F),
+                                selectedLabelColor = Color.White,
+                                selectedLeadingIconColor = Color.White
+                            ),
                             modifier = Modifier.weight(1f)
                         )
                         if (canSeeDebtors) {
                             FilterChip(
                                 selected = selectedStatusFilter == "Devedoras",
                                 onClick = { selectedStatusFilter = "Devedoras" },
-                                label = { Text("Devedoras", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) },
+                                label = {
+                                    Icon(
+                                        imageVector = Icons.Default.Gavel,
+                                        contentDescription = "Devedoras",
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFFD32F2F),
-                                    selectedLabelColor = Color.White
+                                    selectedContainerColor = Color(0xFFB71C1C),
+                                    selectedLabelColor = Color.White,
+                                    selectedLeadingIconColor = Color.White
                                 ),
                                 modifier = Modifier.weight(1f)
                             )
                         }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Filtro: $selectedStatusFilter",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "${filteredUnits.size} unidade(s)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
 
                     var expandedFloorMenu by remember { mutableStateOf(false) }
@@ -872,6 +936,16 @@ fun UnitsExportImportTab(
     }
 }
 
+private fun parseContactList(input: String): List<String> {
+    if (input.isBlank()) return listOf("")
+    val list = input.split(",", "/", ";", "\n").map { it.trim() }.filter { it.isNotBlank() }
+    return list.ifEmpty { listOf("") }
+}
+
+private fun joinContactList(list: List<String>): String {
+    return list.map { it.trim() }.filter { it.isNotBlank() }.joinToString(", ")
+}
+
 @Composable
 fun UnitCard(
     unit: UnitEntity,
@@ -899,6 +973,13 @@ fun UnitCard(
     val isDebtor = delinquent != null || agreement != null || lawsuit != null
     val hasArchived = hasArchivedDelinquent || hasArchivedAgreement || archivedLawsuit != null || delinquencyHistory.isNotEmpty()
 
+    val phones = remember(unit.phone) { parseContactList(unit.phone) }
+    val emails = remember(unit.email) { parseContactList(unit.email) }
+
+    var showPhoneMenu by remember { mutableStateOf(false) }
+    var showWhatsappMenu by remember { mutableStateOf(false) }
+    var showEmailMenu by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -919,7 +1000,8 @@ fun UnitCard(
                             fontWeight = FontWeight.Bold
                         )
                     }
-                    Text("${unit.floor}º ANDAR", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    val residentTypeTag = unit.residentType.ifBlank { "Proprietário" }.uppercase()
+                    Text(residentTypeTag, style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontWeight = FontWeight.Bold)
                 }
 
                 Surface(
@@ -948,8 +1030,10 @@ fun UnitCard(
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
-                    Text("📞 Fone: ${unit.phone.ifBlank { "Não informado" }}", style = MaterialTheme.typography.bodySmall)
-                    Text("✉️ E-mail: ${unit.email.ifBlank { "Não informado" }}", style = MaterialTheme.typography.bodySmall)
+                    val firstPhone = phones.firstOrNull()?.ifBlank { null } ?: "Não informado"
+                    val firstEmail = emails.firstOrNull()?.ifBlank { null } ?: "Não informado"
+                    Text("📞 Fone: $firstPhone", style = MaterialTheme.typography.bodySmall)
+                    Text("✉️ E-mail: $firstEmail", style = MaterialTheme.typography.bodySmall)
                     if (unit.notes.isNotBlank()) {
                         Text("📝 Obs: ${unit.notes}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     }
@@ -986,43 +1070,125 @@ fun UnitCard(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (unit.phone.isNotBlank()) {
-                        IconButton(
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${unit.phone}"))
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
-                            },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Default.Phone, "Ligar", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        Box {
+                            IconButton(
+                                onClick = {
+                                    if (phones.size <= 1) {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${phones.firstOrNull() ?: ""}"))
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    } else {
+                                        showPhoneMenu = true
+                                    }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Phone, "Ligar", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            }
+
+                            if (phones.size > 1) {
+                                DropdownMenu(
+                                    expanded = showPhoneMenu,
+                                    onDismissRequest = { showPhoneMenu = false }
+                                ) {
+                                    phones.forEach { ph ->
+                                        DropdownMenuItem(
+                                            text = { Text("Ligar para $ph") },
+                                            leadingIcon = { Icon(Icons.Default.Phone, null) },
+                                            onClick = {
+                                                showPhoneMenu = false
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$ph"))
+                                                    context.startActivity(intent)
+                                                } catch (_: Exception) {}
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
 
-                        IconButton(
-                            onClick = {
-                                try {
-                                    val clean = unit.phone.replace(Regex("[^0-9]"), "")
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=55$clean"))
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
-                            },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Default.ChatBubbleOutline, "WhatsApp", tint = Color(0xFF25D366), modifier = Modifier.size(18.dp))
+                        Box {
+                            IconButton(
+                                onClick = {
+                                    if (phones.size <= 1) {
+                                        try {
+                                            val clean = (phones.firstOrNull() ?: "").replace(Regex("[^0-9]"), "")
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=55$clean"))
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    } else {
+                                        showWhatsappMenu = true
+                                    }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.ChatBubbleOutline, "WhatsApp", tint = Color(0xFF25D366), modifier = Modifier.size(18.dp))
+                            }
+
+                            if (phones.size > 1) {
+                                DropdownMenu(
+                                    expanded = showWhatsappMenu,
+                                    onDismissRequest = { showWhatsappMenu = false }
+                                ) {
+                                    phones.forEach { ph ->
+                                        DropdownMenuItem(
+                                            text = { Text("WhatsApp $ph") },
+                                            leadingIcon = { Icon(Icons.Default.ChatBubbleOutline, null, tint = Color(0xFF25D366)) },
+                                            onClick = {
+                                                showWhatsappMenu = false
+                                                try {
+                                                    val clean = ph.replace(Regex("[^0-9]"), "")
+                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=55$clean"))
+                                                    context.startActivity(intent)
+                                                } catch (_: Exception) {}
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
                     if (unit.email.isNotBlank()) {
-                        IconButton(
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${unit.email}"))
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
-                            },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Default.Email, "E-mail", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        Box {
+                            IconButton(
+                                onClick = {
+                                    if (emails.size <= 1) {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${emails.firstOrNull() ?: ""}"))
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    } else {
+                                        showEmailMenu = true
+                                    }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Email, "E-mail", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            }
+
+                            if (emails.size > 1) {
+                                DropdownMenu(
+                                    expanded = showEmailMenu,
+                                    onDismissRequest = { showEmailMenu = false }
+                                ) {
+                                    emails.forEach { em ->
+                                        DropdownMenuItem(
+                                            text = { Text("E-mail para $em") },
+                                            leadingIcon = { Icon(Icons.Default.Email, null) },
+                                            onClick = {
+                                                showEmailMenu = false
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$em"))
+                                                    context.startActivity(intent)
+                                                } catch (_: Exception) {}
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1063,9 +1229,13 @@ fun EditUnitDialog(
     onDelete: (() -> Unit)? = null
 ) {
     var ownerName by remember { mutableStateOf(unit.ownerName) }
-    var phone by remember { mutableStateOf(unit.phone) }
-    var email by remember { mutableStateOf(unit.email) }
+    var residentType by remember { mutableStateOf(unit.residentType.ifBlank { "Proprietário" }) }
+    var phoneList by remember { mutableStateOf(parseContactList(unit.phone)) }
+    var emailList by remember { mutableStateOf(parseContactList(unit.email)) }
     var notes by remember { mutableStateOf(unit.notes) }
+
+    var phoneIndexToRemove by remember { mutableStateOf<Int?>(null) }
+    var emailIndexToRemove by remember { mutableStateOf<Int?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1085,29 +1255,121 @@ fun EditUnitDialog(
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it },
-                    label = { Text("Telefone / Celular (com DDD)") },
-                    placeholder = { Text("(11) 99999-8888") },
-                    leadingIcon = { Icon(Icons.Default.Phone, null) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Tipo de Morador *", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        FilterChip(
+                            selected = residentType == "Proprietário",
+                            onClick = { residentType = "Proprietário" },
+                            label = { Text("Proprietário", style = MaterialTheme.typography.labelSmall) },
+                            leadingIcon = if (residentType == "Proprietário") { { Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp)) } } else null,
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = residentType == "Inquilino",
+                            onClick = { residentType = "Inquilino" },
+                            label = { Text("Inquilino", style = MaterialTheme.typography.labelSmall) },
+                            leadingIcon = if (residentType == "Inquilino") { { Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp)) } } else null,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
 
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("E-mail do Condômino") },
-                    placeholder = { Text("morador@email.com") },
-                    leadingIcon = { Icon(Icons.Default.Email, null) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Telefone / Celular (com DDD)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    phoneList.forEachIndexed { index, phoneVal ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = phoneVal,
+                                onValueChange = { newVal ->
+                                    val updated = phoneList.toMutableList()
+                                    updated[index] = newVal
+                                    phoneList = updated
+                                },
+                                label = { Text(if (phoneList.size > 1) "Telefone ${index + 1}" else "Telefone / Celular") },
+                                placeholder = { Text("(11) 99999-8888") },
+                                leadingIcon = { Icon(Icons.Default.Phone, null) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            if (phoneList.size > 1) {
+                                IconButton(
+                                    onClick = {
+                                        phoneIndexToRemove = index
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Default.RemoveCircleOutline,
+                                        contentDescription = "Remover Telefone",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    TextButton(
+                        onClick = { phoneList = phoneList + "" },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Adicionar outro telefone", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("E-mail do Condômino", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    emailList.forEachIndexed { index, emailVal ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = emailVal,
+                                onValueChange = { newVal ->
+                                    val updated = emailList.toMutableList()
+                                    updated[index] = newVal
+                                    emailList = updated
+                                },
+                                label = { Text(if (emailList.size > 1) "E-mail ${index + 1}" else "E-mail do Condômino") },
+                                placeholder = { Text("morador@email.com") },
+                                leadingIcon = { Icon(Icons.Default.Email, null) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            if (emailList.size > 1) {
+                                IconButton(
+                                    onClick = {
+                                        emailIndexToRemove = index
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Default.RemoveCircleOutline,
+                                        contentDescription = "Remover E-mail",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    TextButton(
+                        onClick = { emailList = emailList + "" },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Adicionar outro e-mail", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
 
                 OutlinedTextField(
                     value = notes,
@@ -1125,8 +1387,9 @@ fun EditUnitDialog(
                     onConfirm(
                         unit.copy(
                             ownerName = ownerName.trim(),
-                            phone = phone.trim(),
-                            email = email.trim(),
+                            residentType = residentType,
+                            phone = joinContactList(phoneList),
+                            email = joinContactList(emailList),
                             notes = notes.trim()
                         )
                     )
@@ -1152,6 +1415,66 @@ fun EditUnitDialog(
             }
         }
     )
+
+    if (phoneIndexToRemove != null) {
+        val idx = phoneIndexToRemove!!
+        val phoneVal = phoneList.getOrNull(idx)?.trim() ?: ""
+        AlertDialog(
+            onDismissRequest = { phoneIndexToRemove = null },
+            title = { Text("Remover Telefone", fontWeight = FontWeight.Bold) },
+            text = { Text("Tem certeza que deseja remover ${if (phoneVal.isNotBlank()) "o telefone \"$phoneVal\"" else "este campo de telefone"}?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val updated = phoneList.toMutableList()
+                        if (idx in updated.indices) {
+                            updated.removeAt(idx)
+                            phoneList = updated
+                        }
+                        phoneIndexToRemove = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Remover", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { phoneIndexToRemove = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (emailIndexToRemove != null) {
+        val idx = emailIndexToRemove!!
+        val emailVal = emailList.getOrNull(idx)?.trim() ?: ""
+        AlertDialog(
+            onDismissRequest = { emailIndexToRemove = null },
+            title = { Text("Remover E-mail", fontWeight = FontWeight.Bold) },
+            text = { Text("Tem certeza que deseja remover ${if (emailVal.isNotBlank()) "o e-mail \"$emailVal\"" else "este campo de e-mail"}?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val updated = emailList.toMutableList()
+                        if (idx in updated.indices) {
+                            updated.removeAt(idx)
+                            emailList = updated
+                        }
+                        emailIndexToRemove = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Remover", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { emailIndexToRemove = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1163,9 +1486,13 @@ fun AddUnitDialog(
     var apartment by remember { mutableStateOf("") }
     var floorText by remember { mutableStateOf("2") }
     var ownerName by remember { mutableStateOf("") }
-    var phone by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
+    var residentType by remember { mutableStateOf("Proprietário") }
+    var phoneList by remember { mutableStateOf(listOf("")) }
+    var emailList by remember { mutableStateOf(listOf("")) }
     var notes by remember { mutableStateOf("") }
+
+    var phoneIndexToRemove by remember { mutableStateOf<Int?>(null) }
+    var emailIndexToRemove by remember { mutableStateOf<Int?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1205,25 +1532,121 @@ fun AddUnitDialog(
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it },
-                    label = { Text("Telefone") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Tipo de Morador *", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        FilterChip(
+                            selected = residentType == "Proprietário",
+                            onClick = { residentType = "Proprietário" },
+                            label = { Text("Proprietário", style = MaterialTheme.typography.labelSmall) },
+                            leadingIcon = if (residentType == "Proprietário") { { Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp)) } } else null,
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = residentType == "Inquilino",
+                            onClick = { residentType = "Inquilino" },
+                            label = { Text("Inquilino", style = MaterialTheme.typography.labelSmall) },
+                            leadingIcon = if (residentType == "Inquilino") { { Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp)) } } else null,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
 
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("E-mail") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Telefone / Celular (com DDD)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    phoneList.forEachIndexed { index, phoneVal ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = phoneVal,
+                                onValueChange = { newVal ->
+                                    val updated = phoneList.toMutableList()
+                                    updated[index] = newVal
+                                    phoneList = updated
+                                },
+                                label = { Text(if (phoneList.size > 1) "Telefone ${index + 1}" else "Telefone") },
+                                placeholder = { Text("(11) 99999-8888") },
+                                leadingIcon = { Icon(Icons.Default.Phone, null) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            if (phoneList.size > 1) {
+                                IconButton(
+                                    onClick = {
+                                        phoneIndexToRemove = index
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Default.RemoveCircleOutline,
+                                        contentDescription = "Remover Telefone",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    TextButton(
+                        onClick = { phoneList = phoneList + "" },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Adicionar outro telefone", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("E-mail do Condômino", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    emailList.forEachIndexed { index, emailVal ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = emailVal,
+                                onValueChange = { newVal ->
+                                    val updated = emailList.toMutableList()
+                                    updated[index] = newVal
+                                    emailList = updated
+                                },
+                                label = { Text(if (emailList.size > 1) "E-mail ${index + 1}" else "E-mail") },
+                                placeholder = { Text("morador@email.com") },
+                                leadingIcon = { Icon(Icons.Default.Email, null) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            if (emailList.size > 1) {
+                                IconButton(
+                                    onClick = {
+                                        emailIndexToRemove = index
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Default.RemoveCircleOutline,
+                                        contentDescription = "Remover E-mail",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    TextButton(
+                        onClick = { emailList = emailList + "" },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Adicionar outro e-mail", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             }
         },
         confirmButton = {
@@ -1238,9 +1661,10 @@ fun AddUnitDialog(
                                 id = fixedId,
                                 apartment = apt,
                                 floor = fl,
+                                residentType = residentType,
                                 ownerName = ownerName.trim(),
-                                phone = phone.trim(),
-                                email = email.trim(),
+                                phone = joinContactList(phoneList),
+                                email = joinContactList(emailList),
                                 notes = notes.trim()
                             )
                         )
@@ -1255,6 +1679,66 @@ fun AddUnitDialog(
             TextButton(onClick = onDismiss) { Text("Cancelar") }
         }
     )
+
+    if (phoneIndexToRemove != null) {
+        val idx = phoneIndexToRemove!!
+        val phoneVal = phoneList.getOrNull(idx)?.trim() ?: ""
+        AlertDialog(
+            onDismissRequest = { phoneIndexToRemove = null },
+            title = { Text("Remover Telefone", fontWeight = FontWeight.Bold) },
+            text = { Text("Tem certeza que deseja remover ${if (phoneVal.isNotBlank()) "o telefone \"$phoneVal\"" else "este campo de telefone"}?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val updated = phoneList.toMutableList()
+                        if (idx in updated.indices) {
+                            updated.removeAt(idx)
+                            phoneList = updated
+                        }
+                        phoneIndexToRemove = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Remover", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { phoneIndexToRemove = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (emailIndexToRemove != null) {
+        val idx = emailIndexToRemove!!
+        val emailVal = emailList.getOrNull(idx)?.trim() ?: ""
+        AlertDialog(
+            onDismissRequest = { emailIndexToRemove = null },
+            title = { Text("Remover E-mail", fontWeight = FontWeight.Bold) },
+            text = { Text("Tem certeza que deseja remover ${if (emailVal.isNotBlank()) "o e-mail \"$emailVal\"" else "este campo de e-mail"}?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val updated = emailList.toMutableList()
+                        if (idx in updated.indices) {
+                            updated.removeAt(idx)
+                            emailList = updated
+                        }
+                        emailIndexToRemove = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Remover", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { emailIndexToRemove = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 }
 
 @Composable

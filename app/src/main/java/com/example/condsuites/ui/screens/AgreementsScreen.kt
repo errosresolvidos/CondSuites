@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
@@ -27,6 +28,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.condsuites.data.dao.AppDao
@@ -72,6 +75,8 @@ fun AgreementsManagementScreen(
     var agreementToEdit by remember { mutableStateOf<AgreementWithInstallments?>(null) }
     var delinquentToEdit by remember { mutableStateOf<DelinquentEntity?>(null) }
     var lawsuitToEdit by remember { mutableStateOf<LawsuitEntity?>(null) }
+    var agreementToArchive by remember { mutableStateOf<AgreementWithInstallments?>(null) }
+    var delinquentToArchive by remember { mutableStateOf<DelinquentWithProgress?>(null) }
     
     var agreementToRenew by remember { mutableStateOf<AgreementWithInstallments?>(null) }
     var selectedId by remember { mutableStateOf<Long?>(null) }
@@ -146,7 +151,7 @@ fun AgreementsManagementScreen(
             }
 
             SecondaryTabRow(selectedTabIndex = selectedTab) {
-                tabs.forEachIndexed { index, title -> Tab(selected = selectedTab == index, onClick = { selectedTab = index }, text = { Text(title) }) }
+                tabs.forEachIndexed { index, title -> Tab(selected = selectedTab == index, onClick = { selectedTab = index }, text = { Text(title, maxLines = 1, style = MaterialTheme.typography.bodyMedium) }) }
             }
             
             Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -181,20 +186,26 @@ fun AgreementsManagementScreen(
                                         if (selectedIds.isEmpty()) delinquentToEdit = item.delinquent 
                                     },
                                     onArchive = {
-                                        scope.launch {
-                                            val updated = item.delinquent.copy(isArchived = true)
-                                            dao.updateDelinquent(updated)
-                                            FirestoreSyncManager.syncDelinquent(updated)
-                                        }
+                                        delinquentToArchive = item
                                     },
                                     onAddProgress = { date: String, desc: String ->
-                                        scope.launch { dao.insertDelinquentProgress(DelinquentProgressEntity(delinquentId = item.delinquent.id, apartment = item.delinquent.apartment, date = date, description = desc)) }
+                                        scope.launch {
+                                            val progId = dao.insertDelinquentProgress(DelinquentProgressEntity(delinquentId = item.delinquent.id, apartment = item.delinquent.apartment, date = date, description = desc))
+                                            FirestoreSyncManager.syncDelinquentProgress(DelinquentProgressEntity(id = progId, delinquentId = item.delinquent.id, apartment = item.delinquent.apartment, date = date, description = desc))
+                                        }
                                     },
                                     onUpdateProgress = { progId: Long, date: String, desc: String ->
-                                        scope.launch { dao.updateDelinquentProgress(DelinquentProgressEntity(id = progId, delinquentId = item.delinquent.id, apartment = item.delinquent.apartment, date = date, description = desc)) }
+                                        scope.launch {
+                                            val prog = DelinquentProgressEntity(id = progId, delinquentId = item.delinquent.id, apartment = item.delinquent.apartment, date = date, description = desc)
+                                            dao.updateDelinquentProgress(prog)
+                                            FirestoreSyncManager.syncDelinquentProgress(prog)
+                                        }
                                     },
                                     onDeleteProgress = { progId: Long ->
-                                        scope.launch { dao.deleteDelinquentProgress(progId) }
+                                        scope.launch {
+                                            dao.deleteDelinquentProgress(progId)
+                                            FirestoreSyncManager.syncDelinquentProgress(DelinquentProgressEntity(id = progId), isDelete = true)
+                                        }
                                     }
                                 )
                             }
@@ -236,33 +247,41 @@ fun AgreementsManagementScreen(
                                         selectedTab = 2
                                     },
                                     onArchive = {
-                                        scope.launch {
-                                            val updated = item.agreement.copy(isArchived = true)
-                                            dao.updateAgreement(updated)
-                                            FirestoreSyncManager.syncAgreement(updated)
-                                        }
+                                        agreementToArchive = item
                                     },
                                     onDetails = { selectedId = item.agreement.id },
                                     onAddProgress = { date: String, desc: String ->
                                         scope.launch {
-                                            dao.insertAgreementProgress(AgreementProgressEntity(agreementId = item.agreement.id, apartment = item.agreement.apartment, date = date, description = desc))
+                                            val progId = dao.insertAgreementProgress(AgreementProgressEntity(agreementId = item.agreement.id, apartment = item.agreement.apartment, date = date, description = desc))
+                                            val prog = AgreementProgressEntity(id = progId, agreementId = item.agreement.id, apartment = item.agreement.apartment, date = date, description = desc)
+                                            FirestoreSyncManager.syncAgreementProgress(prog)
 
                                             val delinquent = dao.getDelinquentByApartment(item.agreement.apartment)
                                             if (delinquent != null) {
-                                                dao.insertDelinquentProgress(DelinquentProgressEntity(delinquentId = delinquent.id, apartment = delinquent.apartment, date = date, description = desc))
-                                                dao.updateDelinquent(delinquent.copy(
+                                                val delProgId = dao.insertDelinquentProgress(DelinquentProgressEntity(delinquentId = delinquent.id, apartment = delinquent.apartment, date = date, description = desc))
+                                                FirestoreSyncManager.syncDelinquentProgress(DelinquentProgressEntity(id = delProgId, delinquentId = delinquent.id, apartment = delinquent.apartment, date = date, description = desc))
+                                                val updatedDel = delinquent.copy(
                                                     ownerName = item.agreement.ownerName,
                                                     totalDebt = item.agreement.totalDebt,
                                                     hasMadeAgreement = true
-                                                ))
+                                                )
+                                                dao.updateDelinquent(updatedDel)
+                                                FirestoreSyncManager.syncDelinquent(updatedDel)
                                             }
                                         }
                                     },
                                     onUpdateProgress = { progId: Long, date: String, desc: String ->
-                                        scope.launch { dao.updateAgreementProgress(AgreementProgressEntity(id = progId, agreementId = item.agreement.id, apartment = item.agreement.apartment, date = date, description = desc)) }
+                                        scope.launch {
+                                            val prog = AgreementProgressEntity(id = progId, agreementId = item.agreement.id, apartment = item.agreement.apartment, date = date, description = desc)
+                                            dao.updateAgreementProgress(prog)
+                                            FirestoreSyncManager.syncAgreementProgress(prog)
+                                        }
                                     },
                                     onDeleteProgress = { progId: Long ->
-                                        scope.launch { dao.deleteAgreementProgress(progId) }
+                                        scope.launch {
+                                            dao.deleteAgreementProgress(progId)
+                                            FirestoreSyncManager.syncAgreementProgress(AgreementProgressEntity(id = progId), isDelete = true)
+                                        }
                                     }
                                 )
                             }
@@ -348,10 +367,16 @@ fun AgreementsManagementScreen(
                                     onShare = { com.example.condsuites.ui.screens.reports.shareLawsuitReport(context, item.lawsuit) },
                                     onSuccess = { lawsuitForSuccess = item.lawsuit },
                                     onAddProgress = { date: String, desc: String ->
-                                        scope.launch { dao.insertLawsuitProgress(LawsuitProgressEntity(lawsuitId = item.lawsuit.id, apartment = item.lawsuit.apartment, date = date, description = desc)) }
+                                        scope.launch {
+                                            val progId = dao.insertLawsuitProgress(LawsuitProgressEntity(lawsuitId = item.lawsuit.id, apartment = item.lawsuit.apartment, date = date, description = desc))
+                                            FirestoreSyncManager.syncLawsuitProgress(LawsuitProgressEntity(id = progId, lawsuitId = item.lawsuit.id, apartment = item.lawsuit.apartment, date = date, description = desc))
+                                        }
                                     },
                                     onDeleteProgress = { progId: Long ->
-                                        scope.launch { dao.deleteLawsuitProgress(progId) }
+                                        scope.launch {
+                                            dao.deleteLawsuitProgress(progId)
+                                            FirestoreSyncManager.syncLawsuitProgress(LawsuitProgressEntity(id = progId), isDelete = true)
+                                        }
                                     }
                                 )
                             }
@@ -376,7 +401,12 @@ fun AgreementsManagementScreen(
             onConfirm = { agg, insts -> 
                 val isNewAgreement = agreements.none { it.agreement.id == agg.id }
                 scope.launch { 
-                    dao.insertAgreement(agg)
+                    if (isNewAgreement) {
+                        dao.insertAgreement(agg)
+                    } else {
+                        dao.updateAgreement(agg)
+                        dao.deleteInstallmentsByAgreementId(agg.id)
+                    }
                     dao.insertInstallments(insts)
                     FirestoreSyncManager.syncAgreement(agg)
                     
@@ -524,6 +554,54 @@ fun AgreementsManagementScreen(
             lawsuitForEditWithPwd = null 
         })
 
+        if (agreementToArchive != null) {
+            AlertDialog(
+                onDismissRequest = { agreementToArchive = null },
+                title = { Text("Confirmar Arquivamento") },
+                text = { Text("Deseja realmente arquivar o acordo da unidade ${agreementToArchive!!.agreement.apartment}?") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val item = agreementToArchive!!
+                            scope.launch {
+                                val updated = item.agreement.copy(isArchived = true)
+                                dao.updateAgreement(updated)
+                                FirestoreSyncManager.syncAgreement(updated)
+                            }
+                            agreementToArchive = null
+                        }
+                    ) { Text("Arquivar") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { agreementToArchive = null }) { Text("Cancelar") }
+                }
+            )
+        }
+
+        if (delinquentToArchive != null) {
+            AlertDialog(
+                onDismissRequest = { delinquentToArchive = null },
+                title = { Text("Confirmar Arquivamento") },
+                text = { Text("Deseja realmente arquivar a notificação da unidade ${delinquentToArchive!!.delinquent.apartment}?") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val item = delinquentToArchive!!
+                            scope.launch {
+                                val updated = item.delinquent.copy(isArchived = true)
+                                dao.updateDelinquent(updated)
+                                FirestoreSyncManager.syncDelinquent(updated)
+                            }
+                            delinquentToArchive = null
+                        }
+                    ) { Text("Arquivar") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { delinquentToArchive = null }) { Text("Cancelar") }
+                }
+            )
+        }
+
         if (showDeleteConfirm) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirm = false },
@@ -598,9 +676,19 @@ fun SummarySection(active: List<AgreementWithInstallments>) {
     val totalAgreed = active.sumOf { it.agreement.totalDebt }; val totalPending = active.flatMap { it.installments }.filter { !it.isPaid }.sumOf { it.value }
     Card(Modifier.fillMaxWidth().padding(vertical = 16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
         Column(Modifier.padding(16.dp)) {
-            Text("Resumo Financeiro", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) { Text("Total Acordado:"); Text("R$ ${formatCurrency(totalAgreed)}", fontWeight = FontWeight.Bold) }
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) { Text("Pendente:"); Text("R$ ${formatCurrency(totalPending)}", fontWeight = FontWeight.Bold, color = Color(0xFFE91E63)) }
+            Text("Resumo Financeiro", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) { 
+                Text("Total Acordado:", maxLines = 1, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.width(8.dp))
+                Text("R$ ${formatCurrency(totalAgreed)}", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium) 
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) { 
+                Text("Pendente:", maxLines = 1, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.width(8.dp))
+                Text("R$ ${formatCurrency(totalPending)}", fontWeight = FontWeight.Bold, color = Color(0xFFE91E63), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium) 
+            }
         }
     }
 }
@@ -655,25 +743,25 @@ fun AgreementCard(
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.Top) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        agreement.agreement.ownerName.uppercase(),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.height(4.dp))
                     Surface(
-                        color = if (isCondo) Color(0xFFBBDEFB) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(6.dp)
+                        color = if (isCondo) Color(0xFFBBDEFB) else MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
                             if (isCondo) "🏢 CONDOMÍNIO" else "🚪 UNIDADE: ${agreement.agreement.apartment}",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
                             color = if (isCondo) Color(0xFF0D47A1) else MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        agreement.agreement.ownerName.uppercase(),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     if (agreement.agreement.isLawsuit) {
                         Spacer(Modifier.height(4.dp))
                         Surface(color = Color.Red.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
@@ -715,14 +803,15 @@ fun AgreementCard(
             HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             Spacer(Modifier.height(16.dp))
 
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-                Column {
-                    Text("Dívida Total", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                    Text("R$ ${formatCurrency(agreement.agreement.totalDebt)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Red)
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Dívida Total", style = MaterialTheme.typography.labelSmall, color = Color.Gray, maxLines = 1)
+                    Text("R$ ${formatCurrency(agreement.agreement.totalDebt)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Red, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("Restante", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                    Text("R$ ${formatCurrency(remaining)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                    Text("Restante", style = MaterialTheme.typography.labelSmall, color = Color.Gray, maxLines = 1)
+                    Text("R$ ${formatCurrency(remaining)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
 
@@ -741,6 +830,20 @@ fun AgreementCard(
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                     strokeCap = StrokeCap.Round
                 )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(Modifier.height(16.dp))
+
+            Text("Fluxo de Notificações", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+            Column(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                DelinquentNotificationBadge("1ª Notificação", agreement.agreement.n1Date)
+                DelinquentNotificationBadge("2ª Notificação", agreement.agreement.n2Date)
+                DelinquentNotificationBadge("3ª Notificação", agreement.agreement.n3Date)
             }
 
             if (expanded) {
@@ -784,18 +887,18 @@ fun AgreementCard(
 
             Spacer(Modifier.height(16.dp))
 
-            Row(
+            FlowRow(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton({ onShare() }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Share, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) }
                     IconButton({ onViewHistory() }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.History, null, tint = Color.Gray, modifier = Modifier.size(20.dp)) }
                     IconButton({ onShowNotifs() }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Notifications, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp)) }
                 }
                 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(36.dp)) { Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, "Andamentos", tint = MaterialTheme.colorScheme.primary) }
                     IconButton({ onDetails() }, modifier = Modifier.size(36.dp)) { Icon(Icons.AutoMirrored.Filled.List, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) }
                     if (!agreement.agreement.isLawsuit) {
@@ -855,40 +958,25 @@ fun DelinquentCard(
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.Top) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        item.delinquent.ownerName.uppercase(),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.height(4.dp))
                     Surface(
                         color = if (isCondo) Color(0xFFBBDEFB) else Color(0xFFE1BEE7),
-                        shape = RoundedCornerShape(6.dp)
+                        shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
                             if (isCondo) "🏢 CONDOMÍNIO" else "🚪 UNIDADE: ${item.delinquent.apartment}",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
                             color = if (isCondo) Color(0xFF0D47A1) else Color(0xFF4A148C)
                         )
                     }
-                }
-                
-                if (item.delinquent.hasMadeAgreement) {
-                    Surface(
-                        color = Color(0xFFC8E6C9).copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            "ACORDO FEITO",
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            color = Color(0xFF2E7D32),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        item.delinquent.ownerName.uppercase(),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -903,12 +991,27 @@ fun DelinquentCard(
                 shape = RoundedCornerShape(8.dp),
                 border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.1f))
             ) {
-                Row(Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.AccountBalance, null, tint = Color.Red, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text("Dívida Atual", style = MaterialTheme.typography.labelSmall, color = Color.Red)
-                        Text("R$ ${formatCurrency(item.delinquent.totalDebt)}", color = Color.Red, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
+                Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AccountBalance, null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Dívida Atual", style = MaterialTheme.typography.labelSmall, color = Color.Red, maxLines = 1)
+                        Text("R$ ${formatCurrency(item.delinquent.totalDebt)}", color = Color.Red, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (item.delinquent.hasMadeAgreement) {
+                        Spacer(Modifier.width(8.dp))
+                        Surface(
+                            color = Color(0xFFC8E6C9),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                "ACORDO FEITO",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                color = Color(0xFF2E7D32),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
                     }
                 }
             }
@@ -918,10 +1021,13 @@ fun DelinquentCard(
             Spacer(Modifier.height(16.dp))
 
             Text("Fluxo de Notificações", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), Arrangement.spacedBy(8.dp)) {
-                DelinquentNotificationBadge("1ª Notificação", item.delinquent.notification1Date != null)
-                DelinquentNotificationBadge("2ª Notificação", item.delinquent.notification2Date != null)
-                DelinquentNotificationBadge("3ª Notificação", item.delinquent.notification3Date != null)
+            Column(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                DelinquentNotificationBadge("1ª Notificação", item.delinquent.notification1Date)
+                DelinquentNotificationBadge("2ª Notificação", item.delinquent.notification2Date)
+                DelinquentNotificationBadge("3ª Notificação", item.delinquent.notification3Date)
             }
 
             if (expanded) {
@@ -997,7 +1103,9 @@ fun DelinquentCard(
 }
 
 @Composable
-fun DelinquentNotificationBadge(label: String, active: Boolean) {
+fun DelinquentNotificationBadge(label: String, date: String?) {
+    val actualDate = date?.ifBlank { null }
+    val active = actualDate != null
     Surface(
         color = if (active) Color(0xFF4CAF50).copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(4.dp)
@@ -1010,7 +1118,12 @@ fun DelinquentNotificationBadge(label: String, active: Boolean) {
                 tint = if (active) Color(0xFF2E7D32) else Color.Gray
             )
             Spacer(Modifier.width(4.dp))
-            Text(label, style = MaterialTheme.typography.labelSmall, color = if (active) Color(0xFF2E7D32) else Color.Gray, fontWeight = FontWeight.Bold)
+            Text(
+                text = "$label: ${actualDate ?: "Pendente"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (active) Color(0xFF2E7D32) else Color.Gray,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
@@ -1202,10 +1315,14 @@ fun RegisterAgreementDialog(
 ) {
     var apto by remember { mutableStateOf(editingAgreement?.agreement?.apartment ?: "") }
     var nome by remember { mutableStateOf(editingAgreement?.agreement?.ownerName ?: "") }
-    var divDigits by remember { mutableStateOf(editingAgreement?.agreement?.totalDebt?.let { (it * 100).toLong().toString() } ?: "") }
+    var divDigits by remember { mutableStateOf(editingAgreement?.agreement?.totalDebt?.let { if (it > 0.0) (it * 100).toLong().toString() else "" } ?: "") }
+    var parcelaDigits by remember { mutableStateOf("") }
+    var isEditingByParcela by remember { mutableStateOf(divDigits.isBlank()) }
+
     val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
     var dataAcordo by remember { mutableStateOf(editingAgreement?.agreement?.date ?: sdf.format(Date())) }
     var qtd by remember { mutableStateOf(editingAgreement?.agreement?.installmentsCount?.toString() ?: "1") }; var showPicker by remember { mutableStateOf(false) }
+    val countCalc = qtd.toIntOrNull() ?: 1
     
     val units by dao.getAllUnits().collectAsState(initial = emptyList())
 
@@ -1233,7 +1350,23 @@ fun RegisterAgreementDialog(
             ) {
                 OutlinedTextField(apto, { apto = it }, label = { Text("Apto") }, enabled = !isRenewal && editingAgreement == null, shape = RoundedCornerShape(12.dp))
                 OutlinedTextField(nome, { nome = it }, label = { Text("Nome do Proprietário") }, enabled = !isRenewal && editingAgreement == null, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-                OutlinedTextField(divDigits, { it -> if (it.length <= 12) divDigits = it.filter { it.isDigit() } }, label = { Text("Dívida") }, prefix = { Text("R$ ") }, visualTransformation = CurrencyVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), shape = RoundedCornerShape(12.dp))
+                OutlinedTextField(
+                    divDigits, 
+                    { it -> 
+                        if (it.length <= 12) {
+                            divDigits = it.filter { it.isDigit() }
+                            if (divDigits.isNotBlank()) {
+                                isEditingByParcela = false
+                                parcelaDigits = ""
+                            }
+                        }
+                    }, 
+                    label = { Text("Dívida") }, 
+                    prefix = { Text("R$ ") }, 
+                    visualTransformation = CurrencyVisualTransformation(), 
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), 
+                    shape = RoundedCornerShape(12.dp)
+                )
                 OutlinedTextField(dataAcordo, {}, label = { Text("Data da 1ª parcela") }, readOnly = true, trailingIcon = { IconButton({ showPicker = true }) { Icon(Icons.Default.CalendarToday, null) } }, modifier = Modifier.clickable { showPicker = true }, shape = RoundedCornerShape(12.dp))
                 OutlinedTextField(qtd, { qtd = it }, label = { Text("Parcelas") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = RoundedCornerShape(12.dp))
                 
@@ -1270,16 +1403,28 @@ fun RegisterAgreementDialog(
                     }
                 }
 
-                val totalCalc = (divDigits.toDoubleOrNull() ?: 0.0) / 100
                 val countCalc = qtd.toIntOrNull() ?: 1
+                val totalCalc = if (!isEditingByParcela && divDigits.isNotBlank()) {
+                    (divDigits.toDoubleOrNull() ?: 0.0) / 100
+                } else {
+                    ((parcelaDigits.toDoubleOrNull() ?: 0.0) / 100) * countCalc
+                }
                 val valParcela = if (countCalc > 0) totalCalc / countCalc else 0.0
                 
                 OutlinedTextField(
-                    value = formatCurrency(valParcela),
-                    onValueChange = {},
+                    value = if (divDigits.isBlank() || isEditingByParcela) parcelaDigits else formatCurrency(valParcela),
+                    onValueChange = { input ->
+                        parcelaDigits = input.filter { it.isDigit() }
+                        isEditingByParcela = true
+                        val pVal = (parcelaDigits.toDoubleOrNull() ?: 0.0) / 100
+                        val tVal = pVal * countCalc
+                        divDigits = if (tVal > 0) ((tVal * 100).toLong()).toString() else ""
+                    },
                     label = { Text("Valor das Parcelas") },
-                    readOnly = true,
+                    readOnly = !(divDigits.isBlank() || isEditingByParcela),
                     prefix = { Text("R$ ") },
+                    visualTransformation = if (divDigits.isBlank() || isEditingByParcela) CurrencyVisualTransformation() else VisualTransformation.None,
+                    keyboardOptions = if (divDigits.isBlank() || isEditingByParcela) KeyboardOptions(keyboardType = KeyboardType.NumberPassword) else KeyboardOptions.Default,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
@@ -1289,9 +1434,13 @@ fun RegisterAgreementDialog(
                     Button(
                         onClick = {
                             val id = editingAgreement.agreement.id
-                            val total = (divDigits.toDoubleOrNull() ?: 0.0) / 100
+                            val total = if (!isEditingByParcela && divDigits.isNotBlank()) {
+                                (divDigits.toDoubleOrNull() ?: 0.0) / 100
+                            } else {
+                                ((parcelaDigits.toDoubleOrNull() ?: 0.0) / 100) * countCalc
+                            }
                             val count = qtd.toIntOrNull() ?: 1
-                            val valParcelaCalc = total / count
+                            val valParcelaCalc = if (count > 0) total / count else 0.0
                             val ownerName = editingAgreement.agreement.ownerName
                             val combinedQuotas = quotaList.filter { it.isNotBlank() }.joinToString(";")
                             onAjuizar(AgreementEntity(id, apto, ownerName, total, dataAcordo, count, valParcelaCalc, false, editingAgreement.agreement.originalAgreementId, true, editingAgreement.agreement.n1Date, editingAgreement.agreement.n2Date, editingAgreement.agreement.n3Date, combinedQuotas))
@@ -1309,7 +1458,11 @@ fun RegisterAgreementDialog(
         },
         confirmButton = {
             Button(onClick = {
-                val total = (divDigits.toDoubleOrNull() ?: 0.0) / 100
+                val total = if (!isEditingByParcela && divDigits.isNotBlank()) {
+                    (divDigits.toDoubleOrNull() ?: 0.0) / 100
+                } else {
+                    ((parcelaDigits.toDoubleOrNull() ?: 0.0) / 100) * countCalc
+                }
                 val count = (qtd.toIntOrNull() ?: 1).let { if (it <= 0) 1 else it }
                 val totalBD = BigDecimal.valueOf(total).setScale(2, RoundingMode.HALF_UP)
                 val valParcelaBD = totalBD.divide(BigDecimal.valueOf(count.toLong()), 2, RoundingMode.DOWN)

@@ -114,7 +114,7 @@ struct LoginView: View {
 
                 Spacer()
 
-                Text("v1.0.0 • iOS CondSuites Edition")
+                Text("v2.1.2 • iOS CondSuites Edition")
                     .font(.footnote)
                     .foregroundColor(.white.opacity(0.7))
                     .padding(.bottom, 10)

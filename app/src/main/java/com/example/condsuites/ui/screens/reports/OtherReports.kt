@@ -115,7 +115,8 @@ fun generateUnitsHtmlReport(units: List<UnitEntity>): String {
     """.trimIndent())
 
     units.sortedWith(compareBy({ it.floor }, { naturalSortApartments(it.apartment) })).forEachIndexed { idx, unit ->
-        val name = if (unit.ownerName.isNotBlank()) unit.ownerName.uppercase() else "-"
+        val resType = unit.residentType.ifBlank { "Proprietário" }.uppercase()
+        val name = if (unit.ownerName.isNotBlank()) "${unit.ownerName.uppercase()} ($resType)" else "-"
         val phone = if (unit.phone.isNotBlank()) unit.phone else "-"
         val email = if (unit.email.isNotBlank()) unit.email else "-"
 
@@ -186,8 +187,9 @@ fun generateUnitsTextReport(units: List<UnitEntity>): String {
                 UnitStatus.INCOMPLETO -> "⚠️ INCOMPLETO"
                 UnitStatus.PENDENTE -> "⏳ PENDENTE"
             }
+            val resType = unit.residentType.ifBlank { "Proprietário" }.uppercase()
             sb.append("[${idx + 1}] Apto ${unit.apartment} (${unit.floor}º Andar) | $statusStr\n")
-            sb.append("    Morador/Proprietário: ${if (unit.ownerName.isNotBlank()) unit.ownerName.uppercase() else "Não informado"}\n")
+            sb.append("    Morador/Proprietário: ${if (unit.ownerName.isNotBlank()) "${unit.ownerName.uppercase()} ($resType)" else "Não informado"}\n")
             sb.append("    Fone: ${unit.phone.ifBlank { "Não informado" }} | E-mail: ${unit.email.ifBlank { "Não informado" }}\n")
             if (unit.notes.isNotBlank()) {
                 sb.append("    Obs: ${unit.notes}\n")

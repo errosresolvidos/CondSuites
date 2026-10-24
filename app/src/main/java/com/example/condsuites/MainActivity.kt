@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import com.example.condsuites.data.db.AppDatabase
 import com.example.condsuites.data.model.UserEntity
 import com.example.condsuites.data.preferences.UserPreferences
+import com.example.condsuites.service.CondSuitesBackgroundService
 import com.example.condsuites.service.FirestoreSyncManager
 import com.example.condsuites.ui.AppMainLayout
 import com.example.condsuites.ui.screens.LoginScreen
@@ -80,6 +81,7 @@ fun CondSuitesApp() {
                 }
             } catch (_: Exception) {}
 
+            CondSuitesBackgroundService.startService(context)
             FirestoreSyncManager.startListening(context.applicationContext, dao, scope)
         } catch (e: Exception) {
             e.printStackTrace()

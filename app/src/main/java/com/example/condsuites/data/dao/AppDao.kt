@@ -51,6 +51,7 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertInstallments(installments: List<InstallmentEntity>)
     @Update suspend fun updateAgreement(agreement: AgreementEntity)
     @Update suspend fun updateInstallment(installment: InstallmentEntity)
+    @Query("DELETE FROM installments WHERE agreementId = :agreementId") suspend fun deleteInstallmentsByAgreementId(agreementId: Long)
     @Query("DELETE FROM agreements WHERE id = :id") suspend fun deleteAgreement(id: Long)
 
     @Transaction @Query("SELECT * FROM service_orders ORDER BY id DESC")
@@ -71,19 +72,19 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertDelinquent(delinquent: DelinquentEntity)
     @Update suspend fun updateDelinquent(delinquent: DelinquentEntity)
     @Query("DELETE FROM delinquents WHERE id = :id") suspend fun deleteDelinquent(id: Long)
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertDelinquentProgress(progress: DelinquentProgressEntity)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertDelinquentProgress(progress: DelinquentProgressEntity): Long
     @Update suspend fun updateDelinquentProgress(progress: DelinquentProgressEntity)
     @Query("DELETE FROM delinquent_progress WHERE id = :id") suspend fun deleteDelinquentProgress(id: Long)
 
     @Transaction @Query("SELECT * FROM lawsuits ORDER BY id DESC")
     fun getLawsuitsWithProgress(): Flow<List<LawsuitWithProgress>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertLawsuit(lawsuit: LawsuitEntity)
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertLawsuitProgress(progress: LawsuitProgressEntity)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertLawsuitProgress(progress: LawsuitProgressEntity): Long
     @Update suspend fun updateLawsuit(lawsuit: LawsuitEntity)
     @Query("DELETE FROM lawsuits WHERE id = :id") suspend fun deleteLawsuit(id: Long)
     @Query("DELETE FROM lawsuit_progress WHERE id = :id") suspend fun deleteLawsuitProgress(id: Long)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAgreementProgress(progress: AgreementProgressEntity)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAgreementProgress(progress: AgreementProgressEntity): Long
     @Update suspend fun updateAgreementProgress(progress: AgreementProgressEntity)
     @Query("DELETE FROM agreement_progress WHERE id = :id") suspend fun deleteAgreementProgress(id: Long)
 
@@ -183,7 +184,7 @@ interface AppDao {
     @Query("DELETE FROM contracts WHERE id = :id") suspend fun deleteContract(id: Long)
     @Query("SELECT * FROM contracts") suspend fun getAllContracts(): List<ContractEntity>
     @Query("SELECT * FROM notification_logs ORDER BY id DESC") fun getNotificationLogs(): Flow<List<NotificationLogEntity>>
-    @Insert suspend fun insertNotificationLog(log: NotificationLogEntity)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertNotificationLog(log: NotificationLogEntity): Long
     @Query("DELETE FROM notification_logs") suspend fun clearNotificationLogs()
 
     @Query("SELECT * FROM units ORDER BY floor ASC, apartment ASC") fun getAllUnits(): Flow<List<UnitEntity>>

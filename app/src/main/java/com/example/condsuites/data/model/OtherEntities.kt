@@ -20,6 +20,7 @@ data class UnitEntity(
     @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: Long = 0,
     @get:PropertyName("apartment") @set:PropertyName("apartment") var apartment: String = "",
     @get:PropertyName("floor") @set:PropertyName("floor") var floor: Int = 2,
+    @get:PropertyName("residentType") @set:PropertyName("residentType") var residentType: String = "Proprietário",
     @get:PropertyName("ownerName") @set:PropertyName("ownerName") var ownerName: String = "",
     @get:PropertyName("phone") @set:PropertyName("phone") var phone: String = "",
     @get:PropertyName("email") @set:PropertyName("email") var email: String = "",

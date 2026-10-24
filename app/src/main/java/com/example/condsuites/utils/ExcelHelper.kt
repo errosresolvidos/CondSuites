@@ -1083,7 +1083,7 @@ object ExcelHelper {
                 val workbook = XSSFWorkbook()
                 val sheet = workbook.createSheet("Unidades")
                 val header = sheet.createRow(0)
-                listOf("ID", "Apartamento", "Andar", "Proprietário / Morador", "Telefone", "E-mail", "Observações").forEachIndexed { i, s -> 
+                listOf("ID", "Apartamento", "Andar", "Tipo Morador", "Proprietário / Morador", "Telefone", "E-mail", "Observações").forEachIndexed { i, s -> 
                     header.createCell(i).setCellValue(s) 
                 }
 
@@ -1093,10 +1093,11 @@ object ExcelHelper {
                     row.createCell(0).setCellValue(item.id.toDouble())
                     row.createCell(1).setCellValue(item.apartment)
                     row.createCell(2).setCellValue(item.floor.toDouble())
-                    row.createCell(3).setCellValue(item.ownerName)
-                    row.createCell(4).setCellValue(item.phone)
-                    row.createCell(5).setCellValue(item.email)
-                    row.createCell(6).setCellValue(item.notes)
+                    row.createCell(3).setCellValue(item.residentType.ifBlank { "Proprietário" })
+                    row.createCell(4).setCellValue(item.ownerName)
+                    row.createCell(5).setCellValue(item.phone)
+                    row.createCell(6).setCellValue(item.email)
+                    row.createCell(7).setCellValue(item.notes)
                 }
 
                 context.contentResolver.openOutputStream(uri)?.use { outputStream ->
@@ -1117,7 +1118,7 @@ object ExcelHelper {
                 val workbook = XSSFWorkbook()
                 val sheet = workbook.createSheet("Unidades")
                 val header = sheet.createRow(0)
-                listOf("ID", "Apartamento", "Andar", "Proprietário / Morador", "Telefone", "E-mail", "Observações").forEachIndexed { i, s -> 
+                listOf("ID", "Apartamento", "Andar", "Tipo Morador", "Proprietário / Morador", "Telefone", "E-mail", "Observações").forEachIndexed { i, s -> 
                     header.createCell(i).setCellValue(s) 
                 }
 
@@ -1130,10 +1131,11 @@ object ExcelHelper {
                         row.createCell(0).setCellValue(fixedId.toDouble())
                         row.createCell(1).setCellValue(apt)
                         row.createCell(2).setCellValue(floor.toDouble())
-                        row.createCell(3).setCellValue("")
+                        row.createCell(3).setCellValue("Proprietário")
                         row.createCell(4).setCellValue("")
                         row.createCell(5).setCellValue("")
                         row.createCell(6).setCellValue("")
+                        row.createCell(7).setCellValue("")
                     }
                 }
 
@@ -1194,22 +1196,31 @@ object ExcelHelper {
                             } else 2
                         }
 
-                        val ownerCell = row.getCell(3)
-                        val ownerName = ownerCell?.toString()?.trim() ?: ""
+                        val col3Val = row.getCell(3)?.toString()?.trim() ?: ""
+                        var residentType = "Proprietário"
+                        var ownerName = ""
+                        var phone = ""
+                        var email = ""
+                        var notes = ""
 
-                        val phoneCell = row.getCell(4)
-                        val phone = phoneCell?.toString()?.replace(".0", "")?.trim() ?: ""
-
-                        val emailCell = row.getCell(5)
-                        val email = emailCell?.toString()?.trim() ?: ""
-
-                        val notesCell = row.getCell(6)
-                        val notes = notesCell?.toString()?.trim() ?: ""
+                        if (col3Val.equals("Inquilino", ignoreCase = true) || col3Val.equals("Proprietário", ignoreCase = true) || col3Val.equals("Proprietario", ignoreCase = true)) {
+                            residentType = if (col3Val.contains("inquilino", ignoreCase = true)) "Inquilino" else "Proprietário"
+                            ownerName = row.getCell(4)?.toString()?.trim() ?: ""
+                            phone = row.getCell(5)?.toString()?.replace(".0", "")?.trim() ?: ""
+                            email = row.getCell(6)?.toString()?.trim() ?: ""
+                            notes = row.getCell(7)?.toString()?.trim() ?: ""
+                        } else {
+                            ownerName = col3Val
+                            phone = row.getCell(4)?.toString()?.replace(".0", "")?.trim() ?: ""
+                            email = row.getCell(5)?.toString()?.trim() ?: ""
+                            notes = row.getCell(6)?.toString()?.trim() ?: ""
+                        }
 
                         val unitEntity = UnitEntity(
                             id = targetId,
                             apartment = aptStr,
                             floor = floorNum,
+                            residentType = residentType,
                             ownerName = ownerName,
                             phone = phone,
                             email = email,
