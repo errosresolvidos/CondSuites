@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -28,6 +30,7 @@ import com.example.condsuites.data.model.OccurrenceTypeEntity
 import com.example.condsuites.data.model.ProcessStatusEntity
 import com.example.condsuites.data.model.ServiceDescriptionEntity
 import com.example.condsuites.data.model.UserEntity
+import com.example.condsuites.data.preferences.UserPreferences
 import com.example.condsuites.service.FirestoreSyncManager
 import com.example.condsuites.utils.AuditLogger
 import com.example.condsuites.utils.ExcelHelper
@@ -167,6 +170,9 @@ fun SettingsScreen(
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             item {
+                                NotificationSettingsSection(dao = dao, currentUser = currentUser, scope = scope)
+                            }
+                            item {
                                 ManageFloorsSection(dao = dao, currentUser = currentUser, scope = scope)
                             }
                             item {
@@ -233,7 +239,9 @@ fun ManageUsersSection(
         } else {
             users.filter {
                 it.username.contains(searchQuery, ignoreCase = true) ||
-                it.role.contains(searchQuery, ignoreCase = true)
+                it.role.contains(searchQuery, ignoreCase = true) ||
+                it.name.contains(searchQuery, ignoreCase = true) ||
+                it.phone.contains(searchQuery, ignoreCase = true)
             }
         }
     }
@@ -283,7 +291,7 @@ fun ManageUsersSection(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                label = { Text("Buscar usuário por nome ou perfil...") },
+                label = { Text("Buscar usuário por nome, username ou perfil...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
@@ -461,6 +469,16 @@ fun UserItemRow(
                         }
                     }
 
+                    if (user.name.isNotBlank()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            user.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     Spacer(Modifier.height(2.dp))
 
                     Row(
@@ -478,6 +496,23 @@ fun UserItemRow(
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 fontWeight = FontWeight.SemiBold
                             )
+                        }
+
+                        if (user.phone.isNotBlank()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Phone,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = Color.Gray
+                                )
+                                Spacer(Modifier.width(2.dp))
+                                Text(
+                                    user.phone,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -535,6 +570,8 @@ fun UserFormDialog(
 ) {
     val context = LocalContext.current
     var username by remember { mutableStateOf(user?.username ?: "") }
+    var name by remember { mutableStateOf(user?.name ?: "") }
+    var phone by remember { mutableStateOf(user?.phone ?: "") }
     var password by remember { mutableStateOf(user?.password ?: "") }
     var role by remember { mutableStateOf(user?.role ?: "PORTEIRO") }
     var passwordVisible by remember { mutableStateOf(false) }
@@ -572,6 +609,18 @@ fun UserFormDialog(
                 )
 
                 OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        errorMessage = null
+                    },
+                    label = { Text("Nome Completo") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                OutlinedTextField(
                     value = password,
                     onValueChange = {
                         password = it
@@ -588,6 +637,20 @@ fun UserFormDialog(
                             )
                         }
                     },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = {
+                        phone = it
+                        errorMessage = null
+                    },
+                    label = { Text("Celular") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
                 )
@@ -658,7 +721,9 @@ fun UserFormDialog(
                             id = user?.id ?: 0,
                             username = uName,
                             password = uPass,
-                            role = uRole
+                            role = uRole,
+                            name = name.trim(),
+                            phone = phone.trim()
                         )
 
                         dao.insertUser(userToSave)
@@ -1942,4 +2007,61 @@ fun AuditLogItemRow(
         }
     }
 }
+
+@Composable
+fun NotificationSettingsSection(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope) {
+    val context = LocalContext.current
+    var enabled by remember { mutableStateOf(UserPreferences.isNotificationsEnabledAdminSamuel(context)) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Notificações para Admin e Samuel",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Habilitar ou desabilitar o envio de notificações de novas mensagens ou edição em ocorrências para o usuário admin e o usuário samuel.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Enviar Notificações",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { newValue ->
+                        enabled = newValue
+                        UserPreferences.setNotificationsEnabledAdminSamuel(context, newValue)
+                        Toast.makeText(
+                            context,
+                            if (newValue) "Notificações para Admin e Samuel ativadas." else "Notificações para Admin e Samuel desativadas.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                )
+            }
+        }
+    }
+}
+
 

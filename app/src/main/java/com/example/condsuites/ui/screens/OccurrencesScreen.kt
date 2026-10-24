@@ -68,13 +68,9 @@ fun OccurrencesScreen(
 ) {
     val context = LocalContext.current
     val occurrences by dao.getAllOccurrences().collectAsState(initial = emptyList())
+    val users by dao.getAllUsersFlow().collectAsState(initial = emptyList())
+    val userRoleMap = remember(users) { users.associate { it.username.lowercase() to it.role } }
     val sortedOccList = remember(occurrences) { occurrences.sortedBy { it.occurrence.id } }
-
-    LaunchedEffect(Unit) {
-        scope.launch(Dispatchers.IO) {
-            FirestoreSyncManager.pullAllFromCloud(dao, scope)
-        }
-    }
 
     val canSeeConselho = currentUser.role == "Síndico" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "ADMIN"
 
@@ -88,6 +84,7 @@ fun OccurrencesScreen(
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var occToDelete by remember { mutableStateOf<OccurrenceEntity?>(null) }
+    var expandedOccurrenceId by remember { mutableStateOf<Long?>(null) }
 
     val unreadCardCounts = remember(occurrences, currentUser) {
         var zeladorCount = 0
@@ -99,7 +96,7 @@ fun OccurrencesScreen(
             if (!canUserSeeOccurrence(occ, currentUser)) continue
 
             val hasUnread = occWithMsgs.messages.any { msgWithAtt ->
-                isMessageUnreadForUser(msgWithAtt.message, occ, currentUser)
+                isMessageUnreadForUser(msgWithAtt.message, occ, currentUser, msgWithAtt.reads)
             }
 
             if (hasUnread) {
@@ -240,6 +237,7 @@ fun OccurrencesScreen(
                                 occWithMsgs = occWithMsgs,
                                 occNumber = occNumber,
                                 currentUser = currentUser,
+                                userRoleMap = userRoleMap,
                                 isCompact = isCompact,
                                 isSelected = isSelected,
                                 onLongClickCard = {
@@ -336,14 +334,20 @@ fun OccurrencesScreen(
                                 },
                                 onMarkAsRead = {
                                     scope.launch {
-                                        dao.markOccurrenceMessagesAsRead(occWithMsgs.occurrence.id, currentUser.username)
+                                        val unreadMsgs = occWithMsgs.messages.filter { msgWithAtt ->
+                                            isMessageUnreadForUser(msgWithAtt.message, occWithMsgs.occurrence, currentUser, msgWithAtt.reads)
+                                        }
+                                        unreadMsgs.forEach { msgWithAtt ->
+                                            val readEntity = OccurrenceMessageReadEntity(
+                                                id = System.currentTimeMillis() + msgWithAtt.message.id,
+                                                messageId = msgWithAtt.message.id,
+                                                username = currentUser.username,
+                                                timestamp = System.currentTimeMillis()
+                                            )
+                                            dao.insertOccurrenceMessageRead(readEntity)
+                                            FirestoreSyncManager.syncOccurrenceMessageRead(readEntity)
+                                        }
                                         cancelAppNotification(context, occWithMsgs.occurrence.id.toInt())
-                                        val unreadMsgs = occWithMsgs.messages.map { it.message }.filter {
-                                            isMessageUnreadForUser(it, occWithMsgs.occurrence, currentUser)
-                                        }
-                                        unreadMsgs.forEach { msg ->
-                                            FirestoreSyncManager.syncOccurrenceMessage(msg.copy(isRead = true))
-                                        }
                                     }
                                 },
                                 onDeleteMessage = { msgId ->
@@ -721,14 +725,209 @@ private fun getOccurrenceCreationMillis(occ: OccurrenceEntity, messages: List<Me
     return System.currentTimeMillis()
 }
 
+@Composable
+fun OccurrencePinnedHeader(
+    occWithMsgs: OccurrenceWithMessages,
+    occNumber: Any,
+    currentUser: UserEntity,
+    onClose: () -> Unit,
+    onEditOccurrence: ((newApartment: String, newTitle: String, newDescription: String) -> Unit)? = null
+) {
+    val occ = occWithMsgs.occurrence
+    val messages = occWithMsgs.messages.sortedBy { it.message.id }
+    val isCondo = occ.apartment == "CONDOMÍNIO"
+    var showEditHeaderDialog by remember { mutableStateOf(false) }
+
+    val isAdmin = currentUser.role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true)
+    val creatorUsername = occ.createdByUsername.ifBlank { messages.firstOrNull()?.message?.senderUsername ?: "" }
+    val isCreator = creatorUsername.isNotBlank() && creatorUsername.equals(currentUser.username, ignoreCase = true)
+
+    val creationMillis = remember(occ.id, occ.date, messages.firstOrNull()?.message?.id) {
+        getOccurrenceCreationMillis(occ, messages)
+    }
+    val isWithinTwoHours = (System.currentTimeMillis() - creationMillis) <= (2 * 60 * 60 * 1000L)
+    val canEditOccurrence = onEditOccurrence != null && (isAdmin || (isCreator && isWithinTwoHours))
+
+    if (showEditHeaderDialog && canEditOccurrence) {
+        val firstMsgText = messages.firstOrNull()?.message?.text ?: ""
+        EditOccurrenceDialog(
+            occurrence = occ,
+            occNumber = occNumber,
+            firstMessageText = firstMsgText,
+            onDismiss = { showEditHeaderDialog = false },
+            onConfirm = { newApt, newTitle, newDesc ->
+                onEditOccurrence(newApt, newTitle, newDesc)
+                showEditHeaderDialog = false
+            }
+        )
+    }
+
+    Surface(
+        color = when {
+            isCondo -> Color(0xFFE8F4FD)
+            else -> Color(0xFFF7F7F7)
+        },
+        shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp),
+        tonalElevation = 4.dp,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary,
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "Nº $occNumber",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+
+                            if (occ.isUrgent) {
+                                Icon(Icons.Default.NotificationImportant, contentDescription = "Urgente", tint = Color.Red, modifier = Modifier.size(16.dp))
+                            }
+                            if (occ.type == "CONSELHO") {
+                                Icon(Icons.Default.Gavel, contentDescription = "Conselho", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            }
+                        }
+
+                        if (occ.title.isNotBlank()) {
+                            Text(
+                                text = "Assunto: ${occ.title}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (occ.title.endsWith("(Desarquivada)")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Text(
+                            text = if (isCondo) "🏢 CONDOMÍNIO" else "Unidade: ${occ.apartment}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isCondo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Surface(
+                            color = when (occ.status) {
+                                "ABERTA" -> Color(0xFFE3F2FD)
+                                "EM_ESPERA" -> Color(0xFFFFF3E0)
+                                "FINALIZADA" -> Color(0xFFE8F5E9)
+                                "ARQUIVADA" -> Color(0xFFECEFF1)
+                                else -> Color.LightGray
+                            },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = occ.status,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = when (occ.status) {
+                                    "ABERTA" -> Color(0xFF1976D2)
+                                    "EM_ESPERA" -> Color(0xFFF57C00)
+                                    "FINALIZADA" -> Color(0xFF388E3C)
+                                    "ARQUIVADA" -> Color(0xFF546E7A)
+                                    else -> Color.DarkGray
+                                }
+                            )
+                        }
+
+                        if (canEditOccurrence) {
+                            IconButton(
+                                onClick = { showEditHeaderDialog = true },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = "Editar Ocorrência",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = onClose,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.ExpandLess,
+                                contentDescription = "Fechar card",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (messages.isNotEmpty()) {
+                    Text(
+                        "💬 ${messages.size} ${if (messages.size == 1) "mensagem" else "mensagens"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Text(
+                    occ.date,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OccurrenceCard(
     occWithMsgs: OccurrenceWithMessages,
     occNumber: Any = occWithMsgs.occurrence.id,
     currentUser: UserEntity,
+    userRoleMap: Map<String, String> = emptyMap(),
     isCompact: Boolean = true,
     isSelected: Boolean = false,
+    hideHeader: Boolean = false,
+    onExpand: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     onLongClickCard: () -> Unit = {},
     selectedMessage: OccurrenceMessageEntity? = null,
@@ -750,7 +949,15 @@ fun OccurrenceCard(
     val isArchived = occ.status == "ARQUIVADA"
     val isDesarquivada = occ.title.contains("Desarquivada", ignoreCase = true)
 
-    var showReplyDialog by remember { mutableStateOf(false) }
+    var replyText by remember { mutableStateOf("") }
+    var isCouncilOnly by remember { mutableStateOf(false) }
+    var isSindicoOnly by remember { mutableStateOf(false) }
+    val selectedUris = remember { mutableStateListOf<Uri>() }
+    val context = LocalContext.current
+
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        selectedUris.addAll(uris)
+    }
     var showBudgetDialog by remember { mutableStateOf(false) }
     var showEditHeaderDialog by remember { mutableStateOf(false) }
     var showCloseConfirm by remember { mutableStateOf(false) }
@@ -776,7 +983,7 @@ fun OccurrenceCard(
     val isWithinTwoHours = (System.currentTimeMillis() - creationMillis) <= (2 * 60 * 60 * 1000L)
     val canEditOccurrence = onEditOccurrence != null && (isAdmin || (isCreator && isWithinTwoHours))
 
-    val unreadCount = messages.count { isMessageUnreadForUser(it.message, occ, currentUser) }
+    val unreadCount = messages.count { isMessageUnreadForUser(it.message, occ, currentUser, it.reads) }
 
     LaunchedEffect(expanded, messages.size, unreadCount) {
         if (expanded && unreadCount > 0) {
@@ -858,25 +1065,25 @@ fun OccurrenceCard(
                             }
                         }
 
-                        Text(
-                            text = if (isCondo) "🏢 CONDOMÍNIO" else "Unidade: ${occ.apartment}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isCondo) MaterialTheme.colorScheme.primary else Color.Black,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
                         if (occ.title.isNotBlank()) {
                             Text(
                                 text = "Assunto: ${occ.title}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
                                 color = if (occ.title.endsWith("(Desarquivada)")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+
+                        Text(
+                            text = if (isCondo) "🏢 CONDOMÍNIO" else "Unidade: ${occ.apartment}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isCondo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Row(
@@ -1003,10 +1210,18 @@ fun OccurrenceCard(
                             msg.text
                         }
 
+                        val senderRole: String = when {
+                            msg.senderUsername.equals("SISTEMA", ignoreCase = true) -> ""
+                            msg.senderUsername.equals(currentUser.username, ignoreCase = true) -> currentUser.role
+                            msg.senderUsername.equals("admin", ignoreCase = true) -> "ADMIN"
+                            else -> userRoleMap[msg.senderUsername.lowercase()] ?: ""
+                        }
+
                         ChatBubble(
                             text = displayMsg,
                             author = msg.senderUsername,
                             date = msg.date,
+                            role = senderRole,
                             isFromMe = msg.senderUsername == currentUser.username || (msg.senderUsername == "admin" && currentUser.role == "ADMIN"),
                             isConfidential = msg.isCouncilOnly,
                             isSindicoOnly = msg.isSindicoOnly,
@@ -1031,140 +1246,164 @@ fun OccurrenceCard(
 
                 Spacer(Modifier.height(8.dp))
 
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    val canReply = occ.status != "FINALIZADA" && occ.status != "ARQUIVADA" && currentUser.role != "Porteiro" && currentUser.role != "Zelador"
-                    val canZeladorReply = occ.status != "FINALIZADA" && occ.status != "ARQUIVADA" && currentUser.role == "Zelador" && occ.type == "GERAL"
+                val canReply = occ.status != "FINALIZADA" && occ.status != "ARQUIVADA" && currentUser.role != "Porteiro" && currentUser.role != "Zelador"
+                val canZeladorReply = occ.status != "FINALIZADA" && occ.status != "ARQUIVADA" && currentUser.role == "Zelador" && occ.type == "GERAL"
 
-                    if (canReply || canZeladorReply) {
-                        TextButton(onClick = { showReplyDialog = true }) {
-                            Icon(Icons.Default.Reply, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Responder")
-                        }
-                    }
-
-                    if (currentUser.role == "Síndico" || currentUser.role == "ADMIN" || currentUser.role == "Conselheiro Fiscal") {
-                        if (occ.status == "ARQUIVADA") {
-                            TextButton(onClick = { onUpdateStatus("DESARQUIVAR") }) {
-                                Icon(Icons.Default.Unarchive, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Desarquivar")
-                            }
-                        } else if (occ.status != "FINALIZADA") {
-                            if (currentUser.role == "Síndico" || currentUser.role == "ADMIN") {
-                                ProfessionalBudgetActionButton(onClick = { showBudgetDialog = true })
-                                Spacer(Modifier.width(6.dp))
-                            }
-
-                            TextButton(onClick = { showCloseConfirm = true }) {
-                                Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Fechar")
-                            }
-                        } else {
-                            TextButton(onClick = { onUpdateStatus("ABERTA") }) {
-                                Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Reabrir")
-                            }
-                            Spacer(Modifier.width(4.dp))
-                            TextButton(onClick = { onUpdateStatus("ARQUIVADA") }) {
-                                Icon(Icons.Default.Archive, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Arquivar")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (showReplyDialog) {
-        var replyText by remember { mutableStateOf("") }
-        var isCouncilOnly by remember { mutableStateOf(false) }
-        var isSindicoOnly by remember { mutableStateOf(false) }
-        val selectedUris = remember { mutableStateListOf<Uri>() }
-        val context = LocalContext.current
-
-        val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-            selectedUris.addAll(uris)
-        }
-
-        AlertDialog(
-            onDismissRequest = { showReplyDialog = false },
-            title = { Text("Continuar Conversa") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(replyText, { replyText = it }, label = { Text("Sua mensagem") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
-
-                    if (currentUser.role == "Síndico" || currentUser.role == "ADMIN" || (currentUser.role == "Conselheiro Fiscal" && occ.type == "CONSELHO")) {
-                        Column {
-                            if (currentUser.role == "Síndico" || currentUser.role == "ADMIN") {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = isCouncilOnly, onCheckedChange = { isCouncilOnly = it; if(it) isSindicoOnly = false })
-                                    Text("Sigiloso (Apenas Conselho)", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-
-                            if (currentUser.role == "Conselheiro Fiscal" || currentUser.role == "ADMIN") {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = isSindicoOnly, onCheckedChange = { isSindicoOnly = it; if(it) isCouncilOnly = false })
-                                    Text("Sigiloso (Apenas Síndico)", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.height(8.dp))
-                    }
-
-                    OutlinedButton(
-                        onClick = { fileLauncher.launch(arrayOf("*/*")) },
-                        modifier = Modifier.fillMaxWidth()
+                if (canReply || canZeladorReply) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp)
+                            .imePadding()
                     ) {
-                        Icon(Icons.Default.Add, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Anexar Documentos")
-                    }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = replyText,
+                                onValueChange = { replyText = it },
+                                placeholder = { Text("Digite sua mensagem...") },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(vertical = 4.dp),
+                                minLines = 1,
+                                maxLines = 4,
+                                shape = RoundedCornerShape(24.dp),
+                                trailingIcon = {
+                                    IconButton(
+                                        onClick = { fileLauncher.launch(arrayOf("*/*")) },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.AttachFile,
+                                            contentDescription = "Anexar arquivos",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            )
 
-                    if (selectedUris.isNotEmpty()) {
-                        Text("Anexos (${selectedUris.size}):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        Column {
-                            selectedUris.forEach { uri ->
-                                val fName = getFileName(context, uri)
-                                val isVid = isVideoFile(fName, uri.toString())
-                                val isImg = isImageFile(fName)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        if (isImg) Icons.Default.Image else if (isVid) Icons.Default.Videocam else Icons.AutoMirrored.Filled.InsertDriveFile,
-                                        null,
-                                        Modifier.size(16.dp),
-                                        tint = Color.Gray
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(fName, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                    IconButton(onClick = { selectedUris.removeIf { it == uri } }, modifier = Modifier.size(24.dp)) {
-                                        Icon(Icons.Default.Close, null, Modifier.size(14.dp), tint = Color.Red)
+                            IconButton(
+                                onClick = {
+                                    if (replyText.isNotBlank() || selectedUris.isNotEmpty()) {
+                                        onReply(replyText, isCouncilOnly, isSindicoOnly, selectedUris.toList(), false)
+                                        replyText = ""
+                                        selectedUris.clear()
+                                    }
+                                },
+                                modifier = Modifier.size(40.dp),
+                                enabled = replyText.isNotBlank() || selectedUris.isNotEmpty()
+                            ) {
+                                Icon(
+                                    Icons.Default.Send,
+                                    contentDescription = "Enviar",
+                                    tint = if (replyText.isNotBlank() || selectedUris.isNotEmpty()) MaterialTheme.colorScheme.primary else Color.Gray
+                                )
+                            }
+                        }
+
+                        if (currentUser.role == "Síndico" || currentUser.role == "ADMIN" || (currentUser.role == "Conselheiro Fiscal" && occ.type == "CONSELHO")) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (currentUser.role == "Síndico" || currentUser.role == "ADMIN") {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(checked = isCouncilOnly, onCheckedChange = { isCouncilOnly = it; if(it) isSindicoOnly = false })
+                                        Text("Apenas Conselho", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                if (currentUser.role == "Conselheiro Fiscal" || currentUser.role == "ADMIN") {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(checked = isSindicoOnly, onCheckedChange = { isSindicoOnly = it; if(it) isCouncilOnly = false })
+                                        Text("Apenas Síndico", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (selectedUris.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Anexos (${selectedUris.size}):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            Column(modifier = Modifier.padding(start = 4.dp)) {
+                                selectedUris.forEach { uri ->
+                                    val fName = getFileName(context, uri)
+                                    val isVid = isVideoFile(fName, uri.toString())
+                                    val isImg = isImageFile(fName)
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
+                                        Icon(
+                                            if (isImg) Icons.Default.Image else if (isVid) Icons.Default.Videocam else Icons.AutoMirrored.Filled.InsertDriveFile,
+                                            null,
+                                            Modifier.size(16.dp),
+                                            tint = Color.Gray
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(fName, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                        IconButton(onClick = { selectedUris.removeIf { it == uri } }, modifier = Modifier.size(24.dp)) {
+                                            Icon(Icons.Default.Close, null, Modifier.size(14.dp), tint = Color.Red)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    if (replyText.isNotBlank() || selectedUris.isNotEmpty()) {
-                        onReply(replyText, isCouncilOnly, isSindicoOnly, selectedUris.toList(), false)
-                        showReplyDialog = false
+
+                Spacer(Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (currentUser.role == "Síndico" || currentUser.role == "ADMIN" || currentUser.role == "Conselheiro Fiscal") {
+                            if (occ.status == "ARQUIVADA") {
+                                TextButton(onClick = { onUpdateStatus("DESARQUIVAR") }) {
+                                    Icon(Icons.Default.Unarchive, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Desarquivar")
+                                }
+                            } else if (occ.status != "FINALIZADA") {
+                                if (currentUser.role == "Síndico" || currentUser.role == "ADMIN") {
+                                    ProfessionalBudgetActionButton(onClick = { showBudgetDialog = true })
+                                }
+                            } else {
+                                TextButton(onClick = { onUpdateStatus("ABERTA") }) {
+                                    Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Reabrir")
+                                }
+                                TextButton(onClick = { onUpdateStatus("ARQUIVADA") }) {
+                                    Icon(Icons.Default.Archive, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Arquivar")
+                                }
+                            }
+                        }
                     }
-                }) { Text("Enviar") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showReplyDialog = false }) { Text("Cancelar") }
+
+                    if (currentUser.role == "Síndico" || currentUser.role == "ADMIN" || currentUser.role == "Conselheiro Fiscal") {
+                        if (occ.status != "FINALIZADA" && occ.status != "ARQUIVADA") {
+                            TextButton(onClick = { showCloseConfirm = true }) {
+                                Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Fechar")
+                            }
+                        }
+                    }
+                }
             }
-        )
+        }
     }
+
+
 
     if (showBudgetDialog) {
         BudgetReplyDialog(

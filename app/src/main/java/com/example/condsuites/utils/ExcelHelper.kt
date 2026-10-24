@@ -54,13 +54,15 @@ object ExcelHelper {
                 updateProgress("Usuários", 0.1f, 0)
                 val sheetUsers = workbook.createSheet("Usuários")
                 val headerUsers = sheetUsers.createRow(0)
-                listOf("ID", "Username", "Password", "Role").forEachIndexed { i, s -> headerUsers.createCell(i).setCellValue(s) }
+                listOf("ID", "Username", "Password", "Role", "Nome", "Celular").forEachIndexed { i, s -> headerUsers.createCell(i).setCellValue(s) }
                 dao.getAllUsersFlow().first().forEachIndexed { i, item ->
                     val row = sheetUsers.createRow(i + 1)
                     row.createCell(0).setCellValue(item.id.toDouble())
                     row.createCell(1).setCellValue(item.username)
                     row.createCell(2).setCellValue(item.password)
                     row.createCell(3).setCellValue(item.role)
+                    row.createCell(4).setCellValue(item.name)
+                    row.createCell(5).setCellValue(item.phone)
                 }
                 updateProgress("Usuários", 1.0f, 0)
 

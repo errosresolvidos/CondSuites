@@ -836,14 +836,34 @@ fun AgreementCard(
             HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             Spacer(Modifier.height(16.dp))
 
-            Text("Fluxo de Notificações", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
-            Column(
-                Modifier.fillMaxWidth().padding(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+            var showNotifications by remember { mutableStateOf(false) }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { showNotifications = !showNotifications }
+                    .padding(vertical = 4.dp),
+                Arrangement.SpaceBetween,
+                Alignment.CenterVertically
             ) {
-                DelinquentNotificationBadge("1ª Notificação", agreement.agreement.n1Date)
-                DelinquentNotificationBadge("2ª Notificação", agreement.agreement.n2Date)
-                DelinquentNotificationBadge("3ª Notificação", agreement.agreement.n3Date)
+                Text("Fluxo de Notificações", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                IconButton(onClick = { showNotifications = !showNotifications }, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        if (showNotifications) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (showNotifications) "Recolher Notificações" else "Expandir Notificações",
+                        tint = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+
+            if (showNotifications) {
+                Column(
+                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    DelinquentNotificationBadge("1ª Notificação", agreement.agreement.n1Date)
+                    DelinquentNotificationBadge("2ª Notificação", agreement.agreement.n2Date)
+                    DelinquentNotificationBadge("3ª Notificação", agreement.agreement.n3Date)
+                }
             }
 
             if (expanded) {

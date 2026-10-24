@@ -12,6 +12,7 @@ val Context.dataStore by preferencesDataStore(name = "user_prefs")
 object UserPreferences {
     private const val PREFS_NAME = "session_prefs"
     private const val KEY_CURRENT_USER = "current_session_username"
+    private const val KEY_NOTIF_ADMIN_SAMUEL = "notifications_enabled_admin_samuel"
 
     fun saveCurrentSessionUser(context: Context, username: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -21,6 +22,16 @@ object UserPreferences {
     fun getCurrentSessionUser(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getString(KEY_CURRENT_USER, "") ?: ""
+    }
+
+    fun setNotificationsEnabledAdminSamuel(context: Context, enabled: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_NOTIF_ADMIN_SAMUEL, enabled).apply()
+    }
+
+    fun isNotificationsEnabledAdminSamuel(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_NOTIF_ADMIN_SAMUEL, true)
     }
 
     private val REMEMBERED_USERNAMES = stringSetPreferencesKey("remembered_usernames")

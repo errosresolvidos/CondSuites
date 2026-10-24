@@ -17,6 +17,12 @@ class CondSuitesFirebaseMessagingService : FirebaseMessagingService() {
             return
         }
 
+        val isTargetAdminOrSamuel = currentUsername.equals("admin", ignoreCase = true) || currentUsername.equals("samuel", ignoreCase = true)
+        val notificationsEnabled = UserPreferences.isNotificationsEnabledAdminSamuel(this)
+        if (isTargetAdminOrSamuel && !notificationsEnabled) {
+            return
+        }
+
         val notifId = occurrenceIdStr?.toIntOrNull() ?: (title + body).hashCode()
         NotificationUtils.showAppNotification(this, title, body, notifId)
     }

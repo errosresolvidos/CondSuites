@@ -545,6 +545,7 @@ fun BudgetVotingCard(
     date: String,
     isFromMe: Boolean,
     currentUser: UserEntity,
+    role: String = "",
     isConfidential: Boolean = false,
     isSindicoOnly: Boolean = false,
     isRead: Boolean = false,
@@ -604,8 +605,13 @@ fun BudgetVotingCard(
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
+                                val senderText = if (role.isNotBlank() && author.uppercase() != "SISTEMA") {
+                                    "${author.uppercase()} • $role"
+                                } else {
+                                    author.uppercase()
+                                }
                                 Text(
-                                    text = "Enviado por ${author.uppercase()} • $date${if (isEdited) " (editada)" else ""}",
+                                    text = "Enviado por $senderText • $date${if (isEdited) " (editada)" else ""}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                                 )
@@ -912,6 +918,7 @@ fun ChatBubble(
     date: String,
     isFromMe: Boolean,
     currentUser: UserEntity,
+    role: String = "",
     isConfidential: Boolean = false,
     isSindicoOnly: Boolean = false,
     isRead: Boolean = false,
@@ -941,6 +948,7 @@ fun ChatBubble(
                 date = date,
                 isFromMe = isFromMe,
                 currentUser = currentUser,
+                role = role,
                 isConfidential = isConfidential,
                 isSindicoOnly = isSindicoOnly,
                 isRead = isRead,
@@ -972,10 +980,15 @@ fun ChatBubble(
             ) {
                 Column(Modifier.padding(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        val authorText = if (role.isNotBlank() && author.uppercase() != "SISTEMA") {
+                            "${author.uppercase()} • $role"
+                        } else {
+                            author.uppercase()
+                        }
                         Text(
-                            author.uppercase(), 
-                            style = MaterialTheme.typography.labelSmall, 
-                            fontWeight = FontWeight.ExtraBold, 
+                            authorText,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.ExtraBold,
                             color = if (isFromMe) Color(0xFF075E54) else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.weight(1f, fill = false)
                         )

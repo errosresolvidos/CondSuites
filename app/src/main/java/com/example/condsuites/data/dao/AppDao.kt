@@ -27,6 +27,7 @@ import com.example.condsuites.data.model.OccurrenceAttachmentVoteEntity
 import com.example.condsuites.data.model.OccurrenceEntity
 import com.example.condsuites.data.model.OccurrenceLogEntity
 import com.example.condsuites.data.model.OccurrenceMessageEntity
+import com.example.condsuites.data.model.OccurrenceMessageReadEntity
 import com.example.condsuites.data.model.OccurrenceTypeEntity
 import com.example.condsuites.data.model.OccurrenceWithMessages
 import com.example.condsuites.data.model.OvertimeEntity
@@ -150,6 +151,11 @@ interface AppDao {
     @Query("SELECT * FROM occurrence_attachment_votes") suspend fun getAllAttachmentVotes(): List<OccurrenceAttachmentVoteEntity>
     @Query("DELETE FROM occurrence_attachment_votes WHERE attachmentId = :attId AND username = :user")
     suspend fun deleteAttachmentVote(attId: Long, user: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertOccurrenceMessageRead(read: OccurrenceMessageReadEntity)
+    @Query("SELECT * FROM occurrence_message_reads") suspend fun getAllOccurrenceMessageReads(): List<OccurrenceMessageReadEntity>
+    @Query("DELETE FROM occurrence_message_reads WHERE messageId = :msgId AND username = :user")
+    suspend fun deleteOccurrenceMessageRead(msgId: Long, user: String)
 
     @Query("SELECT * FROM occurrence_logs ORDER BY timestamp DESC")
     fun getAllOccurrenceLogs(): Flow<List<OccurrenceLogEntity>>

@@ -12,7 +12,9 @@ data class UserEntity(
     @PrimaryKey(autoGenerate = true) @get:PropertyName("id") @set:PropertyName("id") var id: Long = 0,
     @get:PropertyName("username") @set:PropertyName("username") var username: String = "",
     @get:PropertyName("password") @set:PropertyName("password") var password: String = "",
-    @get:PropertyName("role") @set:PropertyName("role") var role: String = "PORTEIRO"
+    @get:PropertyName("role") @set:PropertyName("role") var role: String = "PORTEIRO",
+    @get:PropertyName("name") @set:PropertyName("name") var name: String = "",
+    @get:PropertyName("phone") @set:PropertyName("phone") var phone: String = ""
 )
 
 @Entity(tableName = "units")

@@ -18,6 +18,7 @@ import com.example.condsuites.data.model.OccurrenceAttachmentEntity
 import com.example.condsuites.data.model.OccurrenceAttachmentVoteEntity
 import com.example.condsuites.data.model.OccurrenceEntity
 import com.example.condsuites.data.model.OccurrenceMessageEntity
+import com.example.condsuites.data.model.OccurrenceMessageReadEntity
 import com.example.condsuites.data.model.OccurrenceTypeEntity
 import com.example.condsuites.data.model.OvertimeEntity
 import com.example.condsuites.data.model.ServiceDescriptionEntity
@@ -41,6 +42,13 @@ object FirestoreSyncManager {
         } catch (_: Exception) {
             null
         }
+
+    private fun shouldSendNotification(context: Context): Boolean {
+        val currentUsername = UserPreferences.getCurrentSessionUser(context)
+        val isTargetAdminOrSamuel = currentUsername.equals("admin", ignoreCase = true) || currentUsername.equals("samuel", ignoreCase = true)
+        val notificationsEnabled = UserPreferences.isNotificationsEnabledAdminSamuel(context)
+        return !isTargetAdminOrSamuel || notificationsEnabled
+    }
 
     suspend fun touchParentOccurrence(dao: AppDao, occurrenceId: Long) {
         try {
@@ -310,6 +318,21 @@ object FirestoreSyncManager {
         }
     }
 
+    fun syncOccurrenceMessageRead(read: OccurrenceMessageReadEntity, isDelete: Boolean = false) {
+        try {
+            val db = firestore ?: return
+            val docRef = db.collection("occurrence_message_reads").document("${read.messageId}_${read.username}")
+            val task = if (isDelete) docRef.delete() else docRef.set(read)
+            task.addOnSuccessListener {
+                android.util.Log.d("FIRESTORE_SYNC", "Successfully synced message read ${read.messageId} by ${read.username}")
+            }.addOnFailureListener { e ->
+                android.util.Log.e("FIRESTORE_SYNC", "Failed to sync message read: ${e.message}", e)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FIRESTORE_SYNC", "Error in syncOccurrenceMessageRead: ${e.message}")
+        }
+    }
+
     fun syncTransaction(tx: FinanceTransactionEntity, isDelete: Boolean = false) {
         try {
             val db = firestore ?: return
@@ -475,6 +498,24 @@ object FirestoreSyncManager {
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("FIRESTORE_SYNC", "Error pulling votes: ${e.message}")
+                }
+
+                // 5. Pull message reads
+                try {
+                    val readTask = db.collection("occurrence_message_reads").get()
+                    val readSnap = com.google.android.gms.tasks.Tasks.await(readTask, 15, TimeUnit.SECONDS)
+                    for (doc in readSnap.documents) {
+                        val readEntity = doc.toObject(OccurrenceMessageReadEntity::class.java)
+                        if (readEntity != null) {
+                            try {
+                                dao.insertOccurrenceMessageRead(readEntity)
+                            } catch (e: Exception) {
+                                android.util.Log.e("FIRESTORE_SYNC", "Error inserting message read: ${e.message}")
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("FIRESTORE_SYNC", "Error pulling message reads: ${e.message}")
                 }
 
                 // 5. Touch parent occurrences
@@ -658,6 +699,7 @@ object FirestoreSyncManager {
         try {
             pullAllFromCloud(dao, scope)
 
+            val isFirstOccurrencePass = java.util.concurrent.atomic.AtomicBoolean(true)
             val isFirstMessagePass = java.util.concurrent.atomic.AtomicBoolean(true)
 
             db.collection("occurrences").addSnapshotListener { snapshot, error ->
@@ -676,10 +718,28 @@ object FirestoreSyncManager {
                             for (doc in snapshot.documents) {
                                 val occ = doc.toObject(OccurrenceEntity::class.java)
                                 if (occ != null) {
+                                    val existing = dao.getOccurrenceEntityById(occ.id)
                                     dao.insertOccurrenceReplace(occ)
+                                    if (existing != null && existing != occ) {
+                                        if (!isFirstOccurrencePass.get() && shouldSendNotification(context)) {
+                                            val currentUsername = UserPreferences.getCurrentSessionUser(context)
+                                            if (currentUsername.isNotEmpty() && occ.createdByUsername != currentUsername) {
+                                                val currentUser = dao.getUserByUsername(currentUsername)
+                                                if (currentUser != null && canUserSeeOccurrence(occ, currentUser)) {
+                                                    NotificationUtils.showAppNotification(
+                                                        context,
+                                                        "Ocorrência Editada",
+                                                        "A ocorrência '${occ.title}' foi atualizada.",
+                                                        occ.id.toInt()
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                     android.util.Log.d("FIRESTORE_SYNC", "Synced occurrence from cloud: ${occ.id}")
                                 }
                             }
+                            isFirstOccurrencePass.set(false)
                         } catch (e: Exception) {
                             android.util.Log.e("FIRESTORE_SYNC", "Error processing occurrence snapshot: ${e.message}", e)
                         }
@@ -721,7 +781,7 @@ object FirestoreSyncManager {
                                         if (existing == null) {
                                             dao.insertOccurrenceMessageReplace(msg)
                                             touchParentOccurrence(dao, msg.occurrenceId)
-                                            if (!isFirstMessagePass.get()) {
+                                            if (!isFirstMessagePass.get() && shouldSendNotification(context)) {
                                                 val currentUsername = UserPreferences.getCurrentSessionUser(context)
                                                 if (currentUsername.isNotEmpty() && msg.senderUsername != currentUsername) {
                                                     val currentUser = dao.getUserByUsername(currentUsername)
@@ -825,6 +885,27 @@ object FirestoreSyncManager {
                             }
                         } catch (e: Exception) {
                             android.util.Log.e("FIRESTORE_SYNC", "Error processing votes snapshot: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+
+            db.collection("occurrence_message_reads").addSnapshotListener { snapshot, error ->
+                if (error == null && snapshot != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            for (doc in snapshot.documents) {
+                                val readEntity = doc.toObject(OccurrenceMessageReadEntity::class.java)
+                                if (readEntity != null) {
+                                    try {
+                                        dao.insertOccurrenceMessageRead(readEntity)
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("FIRESTORE_SYNC", "Error processing message read: ${e.message}", e)
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("FIRESTORE_SYNC", "Error processing message reads snapshot: ${e.message}", e)
                         }
                     }
                 }

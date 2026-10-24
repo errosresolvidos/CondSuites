@@ -99,7 +99,32 @@ data class MessageWithAttachments(
         parentColumn = "id",
         entityColumn = "messageId"
     )
-    val attachments: List<AttachmentWithVotes>
+    val attachments: List<AttachmentWithVotes>,
+    @Relation(
+        entity = OccurrenceMessageReadEntity::class,
+        parentColumn = "id",
+        entityColumn = "messageId"
+    )
+    val reads: List<OccurrenceMessageReadEntity>
+)
+
+@Entity(
+    tableName = "occurrence_message_reads",
+    foreignKeys = [
+        ForeignKey(
+            entity = OccurrenceMessageEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["messageId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("messageId"), Index("username")]
+)
+data class OccurrenceMessageReadEntity(
+    @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: Long = System.currentTimeMillis(),
+    @get:PropertyName("messageId") @set:PropertyName("messageId") var messageId: Long = 0,
+    @get:PropertyName("username") @set:PropertyName("username") var username: String = "",
+    @get:PropertyName("timestamp") @set:PropertyName("timestamp") var timestamp: Long = System.currentTimeMillis()
 )
 
 data class OccurrenceWithMessages(
@@ -153,13 +178,15 @@ fun canUserSeeMessage(msg: OccurrenceMessageEntity, currentUser: UserEntity): Bo
 fun isMessageUnreadForUser(
     msg: OccurrenceMessageEntity,
     occ: OccurrenceEntity,
-    currentUser: UserEntity
+    currentUser: UserEntity,
+    reads: List<OccurrenceMessageReadEntity> = emptyList()
 ): Boolean {
-    if (msg.isRead) return false
     if (msg.senderUsername.equals(currentUser.username, ignoreCase = true)) return false
     if (msg.senderUsername == "admin" && currentUser.role == "ADMIN") return false
     if (!canUserSeeOccurrence(occ, currentUser)) return false
     if (!canUserSeeMessage(msg, currentUser)) return false
+    val hasRead = reads.any { it.username.equals(currentUser.username, ignoreCase = true) }
+    if (hasRead) return false
     return true
 }
 

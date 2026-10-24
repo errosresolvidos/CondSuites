@@ -100,7 +100,7 @@ fun AppMainLayout(
     val unreadOccurrencesCount = remember(occurrencesWithMessages, currentUser) {
         occurrencesWithMessages.count { item ->
             item.messages.any { msgWithAtt ->
-                isMessageUnreadForUser(msgWithAtt.message, item.occurrence, currentUser)
+                isMessageUnreadForUser(msgWithAtt.message, item.occurrence, currentUser, msgWithAtt.reads)
             }
         }
     }
