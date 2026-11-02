@@ -127,28 +127,69 @@ interface AppDao {
     @Query("SELECT * FROM occurrences WHERE id = :id")
     suspend fun getOccurrenceWithMessagesById(id: Long): OccurrenceWithMessages?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertOccurrence(occurrence: OccurrenceEntity): Long
+    @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertOccurrenceIgnore(occurrence: OccurrenceEntity): Long
     @Query("SELECT * FROM occurrences WHERE id = :id") suspend fun getOccurrenceEntityById(id: Long): OccurrenceEntity?
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertOccurrenceReplace(occurrence: OccurrenceEntity): Long
     @Update suspend fun updateOccurrence(occurrence: OccurrenceEntity)
     @Query("DELETE FROM occurrences WHERE id = :id") suspend fun deleteOccurrence(id: Long)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertOccurrenceMessage(message: OccurrenceMessageEntity): Long
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertOccurrenceMessageReplace(message: OccurrenceMessageEntity): Long
+    suspend fun insertOccurrenceReplace(occurrence: OccurrenceEntity): Long {
+        val rowId = insertOccurrenceIgnore(occurrence)
+        if (rowId == -1L) {
+            updateOccurrence(occurrence)
+            return occurrence.id
+        }
+        return rowId
+    }
+
+    suspend fun insertOccurrence(occurrence: OccurrenceEntity): Long {
+        return insertOccurrenceReplace(occurrence)
+    }
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertOccurrenceMessageIgnore(message: OccurrenceMessageEntity): Long
     @Update suspend fun updateOccurrenceMessage(message: OccurrenceMessageEntity)
+
+    suspend fun insertOccurrenceMessageReplace(message: OccurrenceMessageEntity): Long {
+        val rowId = insertOccurrenceMessageIgnore(message)
+        if (rowId == -1L) {
+            updateOccurrenceMessage(message)
+            return message.id
+        }
+        return rowId
+    }
+
+    suspend fun insertOccurrenceMessage(message: OccurrenceMessageEntity): Long {
+        return insertOccurrenceMessageReplace(message)
+    }
+
     @Query("SELECT * FROM occurrence_messages") suspend fun getAllOccurrenceMessages(): List<OccurrenceMessageEntity>
     @Query("SELECT * FROM occurrence_messages WHERE id = :id") suspend fun getOccurrenceMessageById(id: Long): OccurrenceMessageEntity?
     @Query("DELETE FROM occurrence_messages WHERE id = :id") suspend fun deleteOccurrenceMessage(id: Long)
     @Query("UPDATE occurrence_messages SET isVotingClosed = 1 WHERE id = :msgId") suspend fun closeOccurrenceVoting(msgId: Long)
     @Query("UPDATE occurrence_messages SET isRead = 1 WHERE occurrenceId = :occId AND senderUsername != :username")
     suspend fun markOccurrenceMessagesAsRead(occId: Long, username: String)
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAttachmentReplace(attachment: OccurrenceAttachmentEntity): Long
-    @Insert suspend fun insertAttachment(attachment: OccurrenceAttachmentEntity)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertAttachmentIgnore(attachment: OccurrenceAttachmentEntity): Long
+
+    suspend fun insertAttachmentReplace(attachment: OccurrenceAttachmentEntity): Long {
+        val rowId = insertAttachmentIgnore(attachment)
+        if (rowId == -1L) {
+            updateOccurrenceAttachment(attachment)
+            return attachment.id
+        }
+        return rowId
+    }
+
+    suspend fun insertAttachment(attachment: OccurrenceAttachmentEntity) {
+        insertAttachmentReplace(attachment)
+    }
+
     @Query("SELECT * FROM occurrence_attachments") suspend fun getAllAttachments(): List<OccurrenceAttachmentEntity>
     @Query("SELECT * FROM occurrence_attachments WHERE id = :id LIMIT 1") suspend fun getAttachmentById(id: Long): OccurrenceAttachmentEntity?
     
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAttachmentVote(vote: OccurrenceAttachmentVoteEntity)
     @Query("SELECT * FROM occurrence_attachment_votes") suspend fun getAllAttachmentVotes(): List<OccurrenceAttachmentVoteEntity>
+    @Query("SELECT * FROM occurrence_attachment_votes WHERE attachmentId = :attId AND username = :user LIMIT 1")
+    suspend fun getVoteByUserAndAttachment(attId: Long, user: String): OccurrenceAttachmentVoteEntity?
     @Query("DELETE FROM occurrence_attachment_votes WHERE attachmentId = :attId AND username = :user")
     suspend fun deleteAttachmentVote(attId: Long, user: String)
 
@@ -160,6 +201,23 @@ interface AppDao {
     @Query("SELECT * FROM occurrence_logs ORDER BY timestamp DESC")
     fun getAllOccurrenceLogs(): Flow<List<OccurrenceLogEntity>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertOccurrenceLog(log: OccurrenceLogEntity)
+
+    @Query("SELECT * FROM occurrences WHERE isUrgent = 1 AND status NOT IN ('FINALIZADA', 'ARQUIVADA') ORDER BY id DESC")
+    suspend fun getUrgentUnresolvedOccurrences(): List<OccurrenceEntity>
+
+    @Query("SELECT * FROM occurrences WHERE syncStatus != 'SYNCED'")
+    suspend fun getPendingOccurrences(): List<OccurrenceEntity>
+    @Query("SELECT * FROM occurrence_messages WHERE syncStatus != 'SYNCED'")
+    suspend fun getPendingMessages(): List<OccurrenceMessageEntity>
+    @Query("SELECT * FROM occurrence_attachments WHERE syncStatus != 'SYNCED'")
+    suspend fun getPendingAttachments(): List<OccurrenceAttachmentEntity>
+    @Query("SELECT * FROM occurrence_attachment_votes WHERE syncStatus != 'SYNCED'")
+    suspend fun getPendingAttachmentVotes(): List<OccurrenceAttachmentVoteEntity>
+    @Query("SELECT * FROM occurrence_message_reads WHERE syncStatus != 'SYNCED'")
+    suspend fun getPendingMessageReads(): List<OccurrenceMessageReadEntity>
+    @Update suspend fun updateOccurrenceAttachment(attachment: OccurrenceAttachmentEntity)
+    @Update suspend fun updateOccurrenceAttachmentVote(vote: OccurrenceAttachmentVoteEntity)
+    @Update suspend fun updateOccurrenceMessageRead(read: OccurrenceMessageReadEntity)
 
     @Query("DELETE FROM agreements") suspend fun clearAgreements()
     @Query("DELETE FROM delinquents") suspend fun clearNotifications()

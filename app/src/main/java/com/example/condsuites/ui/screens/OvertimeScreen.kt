@@ -202,6 +202,7 @@ fun OvertimeManagementScreen(dao: AppDao, currentUser: UserEntity, scope: Corout
                     dao.insertOvertime(newOvertime)
                     FirestoreSyncManager.syncOvertime(newOvertime)
                     sendFcmPushNotification(
+                        context = context,
                         dao = dao,
                         title = "Nova Hora Extra Lançada",
                         body = "${newOvertime.employeeName} (${newOvertime.employeeRole}) - ${newOvertime.date} (${newOvertime.startTime} às ${newOvertime.endTime}, ${String.format(Locale.getDefault(), "%.1f", newOvertime.totalHours)}h)",

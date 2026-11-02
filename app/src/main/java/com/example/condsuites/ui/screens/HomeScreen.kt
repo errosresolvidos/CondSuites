@@ -20,11 +20,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.condsuites.data.dao.AppDao
 import com.example.condsuites.data.model.OccurrenceEntity
+import com.example.condsuites.data.model.OccurrenceWithMessages
 import com.example.condsuites.data.model.OccurrenceMessageEntity
 import com.example.condsuites.data.model.OccurrenceAttachmentEntity
 import com.example.condsuites.data.model.UserEntity
 import com.example.condsuites.data.model.canUserSeeOccurrence
 import com.example.condsuites.service.FirestoreSyncManager
+import com.example.condsuites.service.sync.OccurrenceSyncScheduler
+import com.example.condsuites.data.model.SyncStatus
 import com.example.condsuites.service.NotificationUtils.sendFcmPushNotification
 import com.example.condsuites.ui.components.SummaryCard
 import com.example.condsuites.ui.navigation.Screen
@@ -47,7 +50,16 @@ fun HomeScreen(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope, onNa
     
     val filteredOccurrences = occurrences.filter { 
         canUserSeeOccurrence(it.occurrence, currentUser)
-    }
+    }.sortedWith(
+        compareBy<OccurrenceWithMessages> { 
+            when {
+                it.occurrence.isUrgent -> 0
+                it.occurrence.status == "ABERTA" -> 1
+                it.occurrence.status == "FINALIZADA" -> 2
+                else -> 3
+            }
+        }.thenByDescending { it.occurrence.id }
+    )
     
     val openOccurrences = filteredOccurrences.filter { it.occurrence.status == "ABERTA" }
     val finishedOccurrences = filteredOccurrences.filter { it.occurrence.status == "FINALIZADA" }
@@ -189,15 +201,37 @@ fun HomeScreen(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope, onNa
                     val isCondo = occ.apartment == "CONDOMÍNIO"
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onNavigate(Screen.Occurrences) },
+                        border = if (occ.isUrgent) BorderStroke(1.5.dp, Color.Red) else BorderStroke(1.5.dp, Color(0xFF2196F3)),
                         colors = CardDefaults.cardColors(
-                            containerColor = if (isCondo) Color(0xFFE8F4FD) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            containerColor = when {
+                                occ.isUrgent -> Color(0xFFFFF2F2)
+                                isCondo -> Color(0xFFE8F4FD)
+                                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            }
                         )
                     ) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (isCondo) Icons.Default.Apartment else Icons.Default.NotificationImportant, null, tint = Color(0xFF2196F3))
+                            Icon(
+                                if (occ.isUrgent) Icons.Default.NotificationImportant else if (isCondo) Icons.Default.Apartment else Icons.Default.ChatBubbleOutline,
+                                null,
+                                tint = if (occ.isUrgent) Color.Red else Color(0xFF2196F3)
+                            )
                             Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(occ.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                            Column(Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(occ.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                    if (occ.isUrgent) {
+                                        Surface(color = Color.Red, shape = RoundedCornerShape(4.dp)) {
+                                            Text(
+                                                "URGENTE",
+                                                Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                        }
+                                    }
+                                }
                                 Text(if (isCondo) "🏢 CONDOMÍNIO • ${occ.date}" else "🚪 Unidade ${occ.apartment} • ${occ.date}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                             }
                         }
@@ -232,10 +266,13 @@ fun HomeScreen(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope, onNa
         RegisterOccurrenceDialog(
             currentUser = currentUser,
             dao = dao,
+            initialDestination = null,
             onDismiss = { showAddOccurrenceDialog = false },
             onConfirm = { title, desc, apt, isUrgent, uris, dest ->
                 scope.launch(Dispatchers.IO) {
                     val occId = System.currentTimeMillis()
+                    com.example.condsuites.service.NotificationUtils.recordLocalAction(occId, "NEW_OCCURRENCE")
+                    com.example.condsuites.service.NotificationUtils.recordLocalAction(occId, "EDIT")
                     val msgId = occId + 1
                     val newOcc = OccurrenceEntity(
                         id = occId,
@@ -245,27 +282,36 @@ fun HomeScreen(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope, onNa
                         createdByUsername = currentUser.username,
                         date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()),
                         type = dest,
-                        isUrgent = isUrgent
+                        isUrgent = isUrgent,
+                        syncStatus = SyncStatus.PENDING_UPDATE.name
                     )
                     dao.insertOccurrenceReplace(newOcc)
+                    FirestoreSyncManager.syncOccurrence(newOcc)
+                    if (isUrgent) {
+                        com.example.condsuites.service.sync.UrgentOccurrenceScheduler.triggerImmediateCheck(context)
+                    }
+                    val notifTitle = if (isUrgent) "🚨 URGENTE: Nova Ocorrência - $title" else "Nova Ocorrência: $title"
                     sendFcmPushNotification(
+                        context = context,
                         dao = dao,
-                        title = "Nova Ocorrência: $title",
+                        title = notifTitle,
                         body = "Unidade $apt: $desc",
                         senderUsername = currentUser.username,
                         occurrenceId = occId
                     )
-                    FirestoreSyncManager.syncOccurrence(newOcc)
+                    OccurrenceSyncScheduler.scheduleSync(context)
 
                     val firstMsg = OccurrenceMessageEntity(
                         id = msgId,
                         occurrenceId = occId,
                         senderUsername = currentUser.username,
                         text = desc,
-                        date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
+                        date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()),
+                        syncStatus = SyncStatus.PENDING_UPDATE.name
                     )
                     dao.insertOccurrenceMessageReplace(firstMsg)
                     FirestoreSyncManager.syncOccurrenceMessage(firstMsg)
+                    OccurrenceSyncScheduler.scheduleSync(context)
 
                     uris.forEachIndexed { index, uri ->
                         uploadImageToCloudinary(context, uri) { path ->
@@ -277,10 +323,12 @@ fun HomeScreen(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope, onNa
                                         occurrenceId = occId,
                                         messageId = msgId,
                                         fileName = getFileName(context, uri),
-                                        filePath = path
+                                        filePath = path,
+                                        syncStatus = SyncStatus.PENDING_UPDATE.name
                                     )
                                     dao.insertAttachmentReplace(att)
                                     FirestoreSyncManager.syncAttachment(att)
+                                    OccurrenceSyncScheduler.scheduleSync(context)
                                 }
                             }
                         }

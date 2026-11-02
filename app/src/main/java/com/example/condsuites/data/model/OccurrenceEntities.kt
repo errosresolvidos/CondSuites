@@ -7,6 +7,12 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.Relation
 import com.google.firebase.firestore.PropertyName
+import java.text.SimpleDateFormat
+import java.util.Locale
+
+enum class SyncStatus {
+    SYNCED, PENDING_INSERT, PENDING_UPDATE, PENDING_DELETE, FAILED
+}
 
 @Entity(tableName = "occurrences")
 data class OccurrenceEntity(
@@ -18,7 +24,9 @@ data class OccurrenceEntity(
     @get:PropertyName("date") @set:PropertyName("date") var date: String = "",
     @get:PropertyName("type") @set:PropertyName("type") var type: String = "GERAL",
     @get:PropertyName("occurrenceType") @set:PropertyName("occurrenceType") var occurrenceType: String = "",
-    @get:PropertyName("isUrgent") @set:PropertyName("isUrgent") var isUrgent: Boolean = false
+    @get:PropertyName("isUrgent") @set:PropertyName("isUrgent") var isUrgent: Boolean = false,
+    var syncStatus: String = SyncStatus.SYNCED.name,
+    var lastSyncedTimestamp: Long = 0
 )
 
 @Entity(
@@ -45,7 +53,9 @@ data class OccurrenceMessageEntity(
     @get:PropertyName("isVotingClosed") @set:PropertyName("isVotingClosed") var isVotingClosed: Boolean = false,
     @get:PropertyName("isBudget") @set:PropertyName("isBudget") var isBudget: Boolean = false,
     @get:PropertyName("isEdited") @set:PropertyName("isEdited") var isEdited: Boolean = false,
-    @get:PropertyName("timestamp") @set:PropertyName("timestamp") var timestamp: Long = System.currentTimeMillis()
+    @get:PropertyName("timestamp") @set:PropertyName("timestamp") var timestamp: Long = System.currentTimeMillis(),
+    var syncStatus: String = SyncStatus.SYNCED.name,
+    var lastSyncedTimestamp: Long = 0
 )
 
 @Entity(
@@ -65,7 +75,9 @@ data class OccurrenceAttachmentEntity(
     @get:PropertyName("messageId") @set:PropertyName("messageId") var messageId: Long = 0,
     @get:PropertyName("occurrenceId") @set:PropertyName("occurrenceId") var occurrenceId: Long = 0,
     @get:PropertyName("fileName") @set:PropertyName("fileName") var fileName: String = "",
-    @get:PropertyName("filePath") @set:PropertyName("filePath") var filePath: String = ""
+    @get:PropertyName("filePath") @set:PropertyName("filePath") var filePath: String = "",
+    var syncStatus: String = SyncStatus.SYNCED.name,
+    var lastSyncedTimestamp: Long = 0
 )
 
 @Entity(
@@ -83,7 +95,10 @@ data class OccurrenceAttachmentEntity(
 data class OccurrenceAttachmentVoteEntity(
     @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: Long = System.currentTimeMillis(),
     @get:PropertyName("attachmentId") @set:PropertyName("attachmentId") var attachmentId: Long = 0,
-    @get:PropertyName("username") @set:PropertyName("username") var username: String = ""
+    @get:PropertyName("username") @set:PropertyName("username") var username: String = "",
+    @get:PropertyName("voteType") @set:PropertyName("voteType") var voteType: String = "ACCEPT",
+    var syncStatus: String = SyncStatus.SYNCED.name,
+    var lastSyncedTimestamp: Long = 0
 )
 
 data class AttachmentWithVotes(
@@ -121,11 +136,17 @@ data class MessageWithAttachments(
     indices = [Index("messageId"), Index("username")]
 )
 data class OccurrenceMessageReadEntity(
-    @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: Long = System.currentTimeMillis(),
+    @PrimaryKey @get:PropertyName("id") @set:PropertyName("id") var id: String = "",
     @get:PropertyName("messageId") @set:PropertyName("messageId") var messageId: Long = 0,
     @get:PropertyName("username") @set:PropertyName("username") var username: String = "",
-    @get:PropertyName("timestamp") @set:PropertyName("timestamp") var timestamp: Long = System.currentTimeMillis()
+    @get:PropertyName("timestamp") @set:PropertyName("timestamp") var timestamp: Long = System.currentTimeMillis(),
+    var syncStatus: String = SyncStatus.SYNCED.name,
+    var lastSyncedTimestamp: Long = 0
 )
+
+fun generateReadEntityId(messageId: Long, username: String): String {
+    return "${messageId}_${username.trim().lowercase()}"
+}
 
 data class OccurrenceWithMessages(
     @Embedded val occurrence: OccurrenceEntity,
@@ -146,8 +167,21 @@ data class OccurrenceLogEntity(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+fun isSuperAdminUser(currentUser: UserEntity): Boolean {
+    val username = currentUser.username
+    return username.equals("samuel", ignoreCase = true) || 
+           username.equals("admin", ignoreCase = true) || 
+           username.equals("usuario", ignoreCase = true) ||
+           username.equals("usuario2", ignoreCase = true) ||
+           username.equals("usuario3", ignoreCase = true) ||
+           username.equals("usuario 3", ignoreCase = true)
+}
+
 fun canUserSeeOccurrence(occ: OccurrenceEntity, currentUser: UserEntity): Boolean {
     val role = currentUser.role
+    if (occ.type == "ADMIN") {
+        return isSuperAdminUser(currentUser)
+    }
     if (occ.type == "CONSELHO") {
         return role == "Síndico" || role == "Conselheiro Fiscal" || role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true)
     }
@@ -170,7 +204,7 @@ fun canUserSeeMessage(msg: OccurrenceMessageEntity, currentUser: UserEntity): Bo
         return role == "Síndico"
     }
     if (msg.isCouncilOnly || msg.isBudget) {
-        return role == "Síndico" || role == "Conselheiro Fiscal"
+        return role == "Síndico" || role == "Conselheiro Fiscal" || role == "Zelador"
     }
     return true
 }
@@ -183,10 +217,61 @@ fun isMessageUnreadForUser(
 ): Boolean {
     if (msg.senderUsername.equals(currentUser.username, ignoreCase = true)) return false
     if (msg.senderUsername == "admin" && currentUser.role == "ADMIN") return false
+    if (msg.senderUsername.equals("SISTEMA", ignoreCase = true) && msg.text.contains("por ${currentUser.username}", ignoreCase = true)) return false
     if (!canUserSeeOccurrence(occ, currentUser)) return false
     if (!canUserSeeMessage(msg, currentUser)) return false
+    if (msg.isRead) return false
     val hasRead = reads.any { it.username.equals(currentUser.username, ignoreCase = true) }
     if (hasRead) return false
     return true
+}
+
+fun getOccurrenceCreationMillis(occ: OccurrenceEntity, messages: List<MessageWithAttachments>): Long {
+    if (occ.id > 1_000_000_000_000L) {
+        return occ.id
+    }
+    if (occ.date.isNotBlank()) {
+        try {
+            val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+            val parsed = sdf.parse(occ.date)
+            if (parsed != null) return parsed.time
+        } catch (_: Exception) {}
+        try {
+            val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+            val parsed = sdf.parse(occ.date)
+            if (parsed != null) return parsed.time
+        } catch (_: Exception) {}
+    }
+    val firstMsg = messages.sortedBy { it.message.id }.firstOrNull()?.message
+    if (firstMsg != null) {
+        if (firstMsg.id > 1_000_000_000_000L) {
+            return firstMsg.id
+        }
+        if (firstMsg.date.isNotBlank()) {
+            try {
+                val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                val parsed = sdf.parse(firstMsg.date)
+                if (parsed != null) return parsed.time
+            } catch (_: Exception) {}
+        }
+    }
+    return System.currentTimeMillis()
+}
+
+fun getOccurrenceLastActivityMillis(occ: OccurrenceEntity, messages: List<MessageWithAttachments>): Long {
+    val lastMsg = messages.maxByOrNull { it.message.id }?.message
+    if (lastMsg != null) {
+        if (lastMsg.id > 1_000_000_000_000L) {
+            return lastMsg.id
+        }
+        if (lastMsg.date.isNotBlank()) {
+            try {
+                val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                val parsed = sdf.parse(lastMsg.date)
+                if (parsed != null) return parsed.time
+            } catch (_: Exception) {}
+        }
+    }
+    return getOccurrenceCreationMillis(occ, messages)
 }
 

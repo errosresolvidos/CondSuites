@@ -1,5 +1,6 @@
 ﻿package com.example.condsuites
 
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -8,8 +9,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.example.condsuites.data.db.AppDatabase
@@ -17,39 +25,76 @@ import com.example.condsuites.data.model.UserEntity
 import com.example.condsuites.data.preferences.UserPreferences
 import com.example.condsuites.service.CondSuitesBackgroundService
 import com.example.condsuites.service.FirestoreSyncManager
+import com.example.condsuites.service.sync.UrgentOccurrenceScheduler
 import com.example.condsuites.ui.AppMainLayout
 import com.example.condsuites.ui.screens.LoginScreen
 import com.example.condsuites.ui.theme.CondSuitesTheme
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+    var notificationOccurrenceId by mutableStateOf<Long?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        notificationOccurrenceId = intent?.getLongExtra("occurrenceId", 0L)?.takeIf { it != 0L }
         enableEdgeToEdge()
         setContent {
             CondSuitesTheme {
-                CondSuitesApp()
+                CondSuitesApp(
+                    occurrenceIdState = notificationOccurrenceId,
+                    onOccurrenceConsumed = { notificationOccurrenceId = null }
+                )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val occId = intent.getLongExtra("occurrenceId", 0L).takeIf { it != 0L }
+        if (occId != null) {
+            notificationOccurrenceId = occId
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CondSuitesApp() {
+fun CondSuitesApp(
+    occurrenceIdState: Long? = null,
+    onOccurrenceConsumed: () -> Unit = {}
+) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
     val dao = db.appDao()
     val scope = rememberCoroutineScope()
 
     var currentUser by remember { mutableStateOf<UserEntity?>(null) }
+    var isCheckingSession by remember { mutableStateOf(true) }
 
-    LaunchedEffect(currentUser) {
-        if (currentUser != null) {
-            UserPreferences.saveCurrentSessionUser(context, currentUser!!.username)
-        } else {
-            UserPreferences.saveCurrentSessionUser(context, "")
+    LaunchedEffect(Unit) {
+        val savedUsername = UserPreferences.getCurrentSessionUser(context)
+        if (savedUsername.isNotBlank()) {
+            val user = withContext(Dispatchers.IO) {
+                dao.getUserByUsername(savedUsername)
+            }
+            if (user != null) {
+                currentUser = user
+            }
+        }
+        isCheckingSession = false
+    }
+
+    LaunchedEffect(currentUser, isCheckingSession) {
+        if (!isCheckingSession) {
+            if (currentUser != null) {
+                UserPreferences.saveCurrentSessionUser(context, currentUser!!.username)
+            } else {
+                UserPreferences.saveCurrentSessionUser(context, "")
+            }
         }
     }
 
@@ -82,13 +127,24 @@ fun CondSuitesApp() {
             } catch (_: Exception) {}
 
             CondSuitesBackgroundService.startService(context)
+            UrgentOccurrenceScheduler.scheduleUrgentAlerts(context)
+            UrgentOccurrenceScheduler.triggerImmediateCheck(context)
             FirestoreSyncManager.startListening(context.applicationContext, dao, scope)
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    if (currentUser == null) {
+    if (isCheckingSession) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.primaryContainer
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    } else if (currentUser == null) {
         LoginScreen(dao) { user -> currentUser = user }
     } else {
         AppMainLayout(
@@ -97,7 +153,9 @@ fun CondSuitesApp() {
             onLogout = { currentUser = null },
             onUserSwitched = { currentUser = it },
             context = context,
-            scope = scope
+            scope = scope,
+            initialOccurrenceId = occurrenceIdState,
+            onOccurrenceConsumed = onOccurrenceConsumed
         )
     }
 }

@@ -42,7 +42,9 @@ fun AppMainLayout(
     onLogout: () -> Unit,
     onUserSwitched: (UserEntity) -> Unit,
     context: Context,
-    scope: CoroutineScope
+    scope: CoroutineScope,
+    initialOccurrenceId: Long? = null,
+    onOccurrenceConsumed: () -> Unit = {}
 ) {
     val canAccessFinance = currentUser.role != "Zelador" && currentUser.role != "Porteiro"
     val canAccessMaintenance = true
@@ -87,19 +89,28 @@ fun AppMainLayout(
     }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
-    var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
+    var currentScreen by remember { mutableStateOf<Screen>(if (initialOccurrenceId != null) Screen.Occurrences else Screen.Home) }
+    var targetOccurrenceId by remember { mutableStateOf<Long?>(initialOccurrenceId) }
     var targetAgreementsApartment by remember { mutableStateOf<String?>(null) }
     var targetAgreementsTab by remember { mutableIntStateOf(0) }
     var expandedItems by remember { mutableStateOf(setOf<String>()) }
+
+    LaunchedEffect(initialOccurrenceId) {
+        if (initialOccurrenceId != null) {
+            currentScreen = Screen.Occurrences
+            targetOccurrenceId = initialOccurrenceId
+            onOccurrenceConsumed()
+        }
+    }
 
     val occurrencesWithMessages by dao.getAllOccurrences().collectAsState(initial = emptyList())
     val agreements by dao.getActiveAgreements().collectAsState(initial = emptyList())
     val delinquents by dao.getDelinquents().collectAsState(initial = emptyList())
     val lawsuits by dao.getLawsuitsWithProgress().collectAsState(initial = emptyList())
 
-    val unreadOccurrencesCount = remember(occurrencesWithMessages, currentUser) {
-        occurrencesWithMessages.count { item ->
-            item.messages.any { msgWithAtt ->
+    val totalUnreadMessagesCount = remember(occurrencesWithMessages, currentUser) {
+        occurrencesWithMessages.sumOf { item ->
+            item.messages.count { msgWithAtt ->
                 isMessageUnreadForUser(msgWithAtt.message, item.occurrence, currentUser, msgWithAtt.reads)
             }
         }
@@ -335,8 +346,8 @@ fun AppMainLayout(
                         IconButton(onClick = { currentScreen = Screen.Occurrences }) {
                             BadgedBox(
                                 badge = {
-                                    if (unreadOccurrencesCount > 0) {
-                                        Badge { Text("$unreadOccurrencesCount") }
+                                    if (totalUnreadMessagesCount > 0) {
+                                        Badge { Text("$totalUnreadMessagesCount") }
                                     }
                                 }
                             ) {
@@ -370,7 +381,14 @@ fun AppMainLayout(
                         onClearTarget = { targetAgreementsApartment = null }
                     )
                     Screen.Lawsuits -> LawsuitsManagementScreen(lawsuits, agreements, dao, scope)
-                    Screen.Occurrences, Screen.OccurrencesListNav -> OccurrencesScreen(dao, currentUser, scope, isCompact = false)
+                    Screen.Occurrences, Screen.OccurrencesListNav -> OccurrencesScreen(
+                        dao = dao,
+                        currentUser = currentUser,
+                        scope = scope,
+                        isCompact = false,
+                        initialExpandedOccurrenceId = targetOccurrenceId,
+                        onExpandedOccurrenceConsumed = { targetOccurrenceId = null }
+                    )
                     Screen.Units, Screen.UnitsRegistry -> UnitsRegistryScreen(
                         dao = dao,
                         context = context,
@@ -394,7 +412,7 @@ fun AppMainLayout(
                     Screen.ReportsOvertime -> ReportsOvertimeScreen(dao, context)
                     Screen.DelinquencyHistory -> DelinquencyHistoryScreen(dao, currentUser)
                     Screen.Finance, Screen.Accounts -> FinanceScreen(dao, currentUser)
-                    Screen.Settings -> SettingsScreen(dao, currentUser, scope)
+                    Screen.Settings -> SettingsScreen(dao = dao, currentUser = currentUser, scope = scope, onUserUpdated = onUserSwitched)
                     else -> HomeScreen(dao, currentUser, scope, onNavigate = { screen -> currentScreen = screen })
                 }
             }

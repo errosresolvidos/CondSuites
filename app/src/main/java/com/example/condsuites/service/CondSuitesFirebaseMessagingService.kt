@@ -7,24 +7,28 @@ import com.google.firebase.messaging.RemoteMessage
 class CondSuitesFirebaseMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
+        if (!UserPreferences.isGlobalNotificationsEnabled(this)) {
+            return
+        }
         val title = remoteMessage.data["title"] ?: remoteMessage.notification?.title ?: "CondSuites"
         val body = remoteMessage.data["body"] ?: remoteMessage.notification?.body ?: "Nova ocorrência registrada."
         val senderUsername = remoteMessage.data["senderUsername"]
         val occurrenceIdStr = remoteMessage.data["occurrenceId"]
 
         val currentUsername = UserPreferences.getCurrentSessionUser(this)
-        if (!senderUsername.isNullOrEmpty() && senderUsername == currentUsername) {
+        if (!senderUsername.isNullOrEmpty() && senderUsername.equals(currentUsername, ignoreCase = true)) {
             return
         }
 
-        val isTargetAdminOrSamuel = currentUsername.equals("admin", ignoreCase = true) || currentUsername.equals("samuel", ignoreCase = true)
-        val notificationsEnabled = UserPreferences.isNotificationsEnabledAdminSamuel(this)
-        if (isTargetAdminOrSamuel && !notificationsEnabled) {
-            return
+        if (currentUsername.isNotBlank()) {
+            val notificationsEnabled = UserPreferences.isNotificationsEnabledForUser(this, currentUsername)
+            if (!notificationsEnabled) {
+                return
+            }
         }
 
         val notifId = occurrenceIdStr?.toIntOrNull() ?: (title + body).hashCode()
-        NotificationUtils.showAppNotification(this, title, body, notifId)
+        NotificationUtils.showAppNotification(this, title, body, notifId, occurrenceIdStr?.toLongOrNull())
     }
 
     override fun onNewToken(token: String) {

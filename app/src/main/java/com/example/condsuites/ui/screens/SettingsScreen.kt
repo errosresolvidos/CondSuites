@@ -5,6 +5,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -47,7 +49,8 @@ import kotlinx.coroutines.withContext
 fun SettingsScreen(
     dao: AppDao,
     currentUser: UserEntity,
-    scope: CoroutineScope
+    scope: CoroutineScope,
+    onUserUpdated: (UserEntity) -> Unit = {}
 ) {
     val context = LocalContext.current
     val isAdmin = remember(currentUser) {
@@ -127,7 +130,10 @@ fun SettingsScreen(
         ) {
             if (!isAdmin) {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .imePadding(),
+                    contentPadding = PaddingValues(bottom = 120.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     item {
@@ -161,16 +167,34 @@ fun SettingsScreen(
                             }
                         }
                     }
+                    item {
+                        ChangePasswordSection(dao = dao, currentUser = currentUser, scope = scope, onUserUpdated = onUserUpdated)
+                    }
+                    item {
+                        UserNotificationSettingsSection(currentUser = currentUser)
+                    }
                 }
             } else {
                 when (selectedTabIndex) {
                     0 -> {
                         LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .imePadding(),
+                            contentPadding = PaddingValues(bottom = 120.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             item {
+                                ChangePasswordSection(dao = dao, currentUser = currentUser, scope = scope, onUserUpdated = onUserUpdated)
+                            }
+                            item {
+                                UserNotificationSettingsSection(currentUser = currentUser)
+                            }
+                            item {
                                 NotificationSettingsSection(dao = dao, currentUser = currentUser, scope = scope)
+                            }
+                            item {
+                                OccurrenceCardEditingSettingsSection(dao = dao, currentUser = currentUser, scope = scope)
                             }
                             item {
                                 ManageFloorsSection(dao = dao, currentUser = currentUser, scope = scope)
@@ -188,7 +212,10 @@ fun SettingsScreen(
                     }
                     1 -> {
                         LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .imePadding(),
+                            contentPadding = PaddingValues(bottom = 120.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             item {
@@ -198,7 +225,10 @@ fun SettingsScreen(
                     }
                     2 -> {
                         LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .imePadding(),
+                            contentPadding = PaddingValues(bottom = 120.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             item {
@@ -585,7 +615,10 @@ fun UserFormDialog(
         title = { Text(if (user == null) "Cadastrar Novo Usuário" else "Editar Usuário") },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .imePadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (errorMessage != null) {
@@ -1474,7 +1507,10 @@ fun AuditLogsSection(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+        contentPadding = PaddingValues(bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
@@ -1849,7 +1885,13 @@ fun AuditLogsSection(
             onDismissRequest = { showManualLogDialog = false },
             title = { Text("Registrar Log de Auditoria Manual") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .imePadding(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     OutlinedTextField(
                         value = actionInput,
                         onValueChange = { actionInput = it },
@@ -2009,9 +2051,93 @@ fun AuditLogItemRow(
 }
 
 @Composable
+fun UserNotificationSettingsSection(currentUser: UserEntity) {
+    val context = LocalContext.current
+    var enabled by remember(currentUser.username) {
+        mutableStateOf(UserPreferences.isNotificationsEnabledForUser(context, currentUser.username))
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Notifications,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        "Notificações da Conta",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "Habilite ou desabilite o envio e recebimento de notificações para sua conta (${currentUser.username}). Útil para testes.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Receber / Enviar Notificações",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = if (enabled) "Notificações ativadas para este usuário." else "Notificações desativadas (silenciado para testes).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { newValue ->
+                        enabled = newValue
+                        UserPreferences.setNotificationsEnabledForUser(context, currentUser.username, newValue)
+                        Toast.makeText(
+                            context,
+                            if (newValue) "Notificações ativadas para ${currentUser.username}." else "Notificações desativadas para ${currentUser.username}.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun NotificationSettingsSection(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope) {
     val context = LocalContext.current
-    var enabled by remember { mutableStateOf(UserPreferences.isNotificationsEnabledAdminSamuel(context)) }
+    val users by dao.getAllUsersFlow().collectAsState(initial = emptyList())
+    var globalEnabled by remember {
+        mutableStateOf(UserPreferences.isGlobalNotificationsEnabled(context))
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -2022,7 +2148,7 @@ fun NotificationSettingsSection(dao: AppDao, currentUser: UserEntity, scope: Cor
                 Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "Notificações para Admin e Samuel",
+                    "Controle Global de Notificações",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -2030,38 +2156,493 @@ fun NotificationSettingsSection(dao: AppDao, currentUser: UserEntity, scope: Cor
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "Habilitar ou desabilitar o envio de notificações de novas mensagens ou edição em ocorrências para o usuário admin e o usuário samuel.",
+                "Desative globalmente para impedir que qualquer usuário envie ou receba notificações de novas mensagens ou ocorrências (ideal para testes).",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Sistema de Notificações Ativo",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (globalEnabled) "Notificações permitidas no sistema." else "Globalmente desativadas (nenhum usuário recebe).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (globalEnabled) Color.DarkGray else Color.Red
+                        )
+                    }
+                    Switch(
+                        checked = globalEnabled,
+                        onCheckedChange = { newValue ->
+                            globalEnabled = newValue
+                            UserPreferences.setGlobalNotificationsEnabled(context, newValue)
+                            Toast.makeText(
+                                context,
+                                if (newValue) "Notificações ativadas globalmente." else "Notificações desativadas globalmente para todos os usuários.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            var urgentAlertsEnabled by remember {
+                mutableStateOf(UserPreferences.isUrgentAlertsEnabled(context))
+            }
+
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Alertas de Ocorrências Urgentes (Síndico)",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (urgentAlertsEnabled) "Alertas em segundo plano ativos (mesmo com o app fechado da memória)." else "Alertas periódicos de urgência desativados.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (urgentAlertsEnabled) Color.DarkGray else Color.Red
+                        )
+                    }
+                    Switch(
+                        checked = urgentAlertsEnabled,
+                        onCheckedChange = { newValue ->
+                            urgentAlertsEnabled = newValue
+                            UserPreferences.setUrgentAlertsEnabled(context, newValue)
+                            if (newValue) {
+                                com.example.condsuites.service.sync.UrgentOccurrenceScheduler.scheduleUrgentAlerts(context)
+                                com.example.condsuites.service.sync.UrgentOccurrenceScheduler.triggerImmediateCheck(context)
+                            } else {
+                                com.example.condsuites.service.sync.UrgentOccurrenceScheduler.cancelUrgentAlerts(context)
+                            }
+                            Toast.makeText(
+                                context,
+                                if (newValue) "Alertas de ocorrências urgentes ativados." else "Alertas de ocorrências urgentes desativados.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                "Enviar Notificações por Usuário",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Habilitar ou desabilitar o envio de notificações para cada usuário do sistema individualmente.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray
             )
 
             Spacer(Modifier.height(16.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            if (users.isEmpty()) {
                 Text(
-                    "Enviar Notificações",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
+                    "Nenhum usuário cadastrado.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray
                 )
-                Switch(
-                    checked = enabled,
-                    onCheckedChange = { newValue ->
-                        enabled = newValue
-                        UserPreferences.setNotificationsEnabledAdminSamuel(context, newValue)
-                        Toast.makeText(
-                            context,
-                            if (newValue) "Notificações para Admin e Samuel ativadas." else "Notificações para Admin e Samuel desativadas.",
-                            Toast.LENGTH_SHORT
-                        ).show()
+            } else {
+                users.forEachIndexed { index, user ->
+                    var enabled by remember(user.username) {
+                        mutableStateOf(UserPreferences.isNotificationsEnabledForUser(context, user.username))
                     }
-                )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${user.username} (${user.role})",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
+                            if (user.name.isNotBlank()) {
+                                Text(
+                                    text = user.name,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = enabled,
+                            onCheckedChange = { newValue ->
+                                enabled = newValue
+                                UserPreferences.setNotificationsEnabledForUser(context, user.username, newValue)
+                                Toast.makeText(
+                                    context,
+                                    if (newValue) "Notificações ativadas para ${user.username}." else "Notificações desativadas para ${user.username}.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                    }
+                    if (index < users.size - 1) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    }
+                }
             }
         }
     }
 }
+
+@Composable
+fun OccurrenceCardEditingSettingsSection(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope) {
+    val context = LocalContext.current
+    val users by dao.getAllUsersFlow().collectAsState(initial = emptyList())
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Permissão de Edição de Ocorrências",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Habilitar ou desabilitar quais usuários poderão editar os cards das ocorrências no sistema.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            if (users.isEmpty()) {
+                Text(
+                    "Nenhum usuário cadastrado.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray
+                )
+            } else {
+                users.forEachIndexed { index, user ->
+                    var enabled by remember(user.username, user.canEditOccurrences) {
+                        mutableStateOf(user.canEditOccurrences || user.role.equals("ADMIN", ignoreCase = true) || user.username.equals("admin", ignoreCase = true))
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${user.username} (${user.role})",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
+                            if (user.name.isNotBlank()) {
+                                Text(
+                                    text = user.name,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = enabled,
+                            onCheckedChange = { newValue ->
+                                enabled = newValue
+                                user.canEditOccurrences = newValue
+                                scope.launch(Dispatchers.IO) {
+                                    dao.insertUser(user)
+                                    FirestoreSyncManager.syncUser(user)
+                                    AuditLogger.log(
+                                        dao = dao,
+                                        user = currentUser,
+                                        action = "Alterar Permissão de Edição de Ocorrência",
+                                        category = "CONFIGURAÇÕES",
+                                        details = "Permissão de edição de ocorrências para ${user.username} alterada para $newValue"
+                                    )
+                                }
+                                Toast.makeText(
+                                    context,
+                                    if (newValue) "Edição de ocorrências ativada para ${user.username}." else "Edição de ocorrências desativada para ${user.username}.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                    }
+                    if (index < users.size - 1) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChangePasswordSection(
+    dao: AppDao,
+    currentUser: UserEntity,
+    scope: CoroutineScope,
+    onUserUpdated: (UserEntity) -> Unit = {}
+) {
+    val context = LocalContext.current
+    var currentPasswordInput by remember { mutableStateOf("") }
+    var newPasswordInput by remember { mutableStateOf("") }
+    var confirmPasswordInput by remember { mutableStateOf("") }
+
+    var currentPasswordVisible by remember { mutableStateOf(false) }
+    var newPasswordVisible by remember { mutableStateOf(false) }
+    var confirmPasswordVisible by remember { mutableStateOf(false) }
+
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var successMessage by remember { mutableStateOf<String?>(null) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        "Alterar Senha de Acesso",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "Atualize sua senha de login no sistema.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
+            }
+
+            if (errorMessage != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        errorMessage!!,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+
+            if (successMessage != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        successMessage!!,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                value = currentPasswordInput,
+                onValueChange = {
+                    currentPasswordInput = it
+                    errorMessage = null
+                    successMessage = null
+                },
+                label = { Text("Senha Atual") },
+                singleLine = true,
+                visualTransformation = if (currentPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { currentPasswordVisible = !currentPasswordVisible }) {
+                        Icon(
+                            imageVector = if (currentPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = if (currentPasswordVisible) "Ocultar senha" else "Mostrar senha"
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            )
+
+            OutlinedTextField(
+                value = newPasswordInput,
+                onValueChange = {
+                    newPasswordInput = it
+                    errorMessage = null
+                    successMessage = null
+                },
+                label = { Text("Nova Senha") },
+                singleLine = true,
+                visualTransformation = if (newPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { newPasswordVisible = !newPasswordVisible }) {
+                        Icon(
+                            imageVector = if (newPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = if (newPasswordVisible) "Ocultar senha" else "Mostrar senha"
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            )
+
+            OutlinedTextField(
+                value = confirmPasswordInput,
+                onValueChange = {
+                    confirmPasswordInput = it
+                    errorMessage = null
+                    successMessage = null
+                },
+                label = { Text("Confirmar Nova Senha") },
+                singleLine = true,
+                visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
+                        Icon(
+                            imageVector = if (confirmPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = if (confirmPasswordVisible) "Ocultar senha" else "Mostrar senha"
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            )
+
+            Button(
+                onClick = {
+                    val currentPass = currentPasswordInput.trim()
+                    val newPass = newPasswordInput.trim()
+                    val confirmPass = confirmPasswordInput.trim()
+
+                    if (currentPass.isBlank()) {
+                        errorMessage = "Informe a senha atual."
+                        return@Button
+                    }
+                    if (currentPass != currentUser.password) {
+                        errorMessage = "A senha atual está incorreta."
+                        return@Button
+                    }
+                    if (newPass.isBlank()) {
+                        errorMessage = "Informe a nova senha."
+                        return@Button
+                    }
+                    if (newPass.length < 3) {
+                        errorMessage = "A nova senha deve ter pelo menos 3 caracteres."
+                        return@Button
+                    }
+                    if (newPass != confirmPass) {
+                        errorMessage = "A nova senha e a confirmação não conferem."
+                        return@Button
+                    }
+                    if (newPass == currentPass) {
+                        errorMessage = "A nova senha deve ser diferente da senha atual."
+                        return@Button
+                    }
+
+                    scope.launch(Dispatchers.IO) {
+                        val updatedUser = currentUser.copy(password = newPass)
+                        dao.insertUser(updatedUser)
+                        FirestoreSyncManager.syncUser(updatedUser)
+                        AuditLogger.log(
+                            dao = dao,
+                            user = currentUser,
+                            action = "Alterar Senha",
+                            category = "SEGURANÇA",
+                            details = "Usuário '${currentUser.username}' alterou sua senha de acesso com sucesso"
+                        )
+                        withContext(Dispatchers.Main) {
+                            currentPasswordInput = ""
+                            newPasswordInput = ""
+                            confirmPasswordInput = ""
+                            successMessage = "Senha alterada com sucesso!"
+                            Toast.makeText(context, "Senha alterada com sucesso!", Toast.LENGTH_SHORT).show()
+                            onUserUpdated(updatedUser)
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Alterar Senha")
+            }
+        }
+    }
+}
+
 
 

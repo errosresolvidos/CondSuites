@@ -14,7 +14,8 @@ data class UserEntity(
     @get:PropertyName("password") @set:PropertyName("password") var password: String = "",
     @get:PropertyName("role") @set:PropertyName("role") var role: String = "PORTEIRO",
     @get:PropertyName("name") @set:PropertyName("name") var name: String = "",
-    @get:PropertyName("phone") @set:PropertyName("phone") var phone: String = ""
+    @get:PropertyName("phone") @set:PropertyName("phone") var phone: String = "",
+    @get:PropertyName("canEditOccurrences") @set:PropertyName("canEditOccurrences") var canEditOccurrences: Boolean = false
 )
 
 @Entity(tableName = "units")

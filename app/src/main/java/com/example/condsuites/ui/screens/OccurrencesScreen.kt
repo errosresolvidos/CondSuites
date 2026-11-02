@@ -5,6 +5,7 @@ import android.widget.Toast
 import kotlinx.coroutines.withContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,13 +37,18 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.condsuites.data.dao.AppDao
 import com.example.condsuites.data.model.*
 import com.example.condsuites.service.FirestoreSyncManager
+import com.example.condsuites.service.sync.OccurrenceSyncScheduler
+import com.example.condsuites.data.model.SyncStatus
 import com.example.condsuites.service.NotificationUtils.cancelAppNotification
 import com.example.condsuites.service.NotificationUtils.sendFcmPushNotification
+import com.example.condsuites.ui.components.BudgetOptionChoiceDialog
 import com.example.condsuites.ui.components.BudgetReplyDialog
 import com.example.condsuites.ui.components.ChatBubble
+import com.example.condsuites.ui.components.CloseVotingDialog
 import com.example.condsuites.ui.components.ConfirmDeleteOccurrenceDialog
 import com.example.condsuites.ui.components.ProfessionalBudgetActionButton
 import com.example.condsuites.utils.CurrencyVisualTransformation
+import com.example.condsuites.utils.copyFileToInternalStorage
 import com.example.condsuites.utils.formatCurrency
 import com.example.condsuites.utils.getFileName
 import com.example.condsuites.utils.isImageFile
@@ -56,6 +63,8 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
+import com.example.condsuites.data.model.isSuperAdminUser
+
 @Composable
 fun OccurrencesScreen(
     dao: AppDao,
@@ -64,7 +73,9 @@ fun OccurrencesScreen(
     isCompact: Boolean = true,
     selectedMessage: OccurrenceMessageEntity? = null,
     onMessageSelected: (OccurrenceMessageEntity?) -> Unit = {},
-    initialShowAddDialog: Boolean = false
+    initialShowAddDialog: Boolean = false,
+    initialExpandedOccurrenceId: Long? = null,
+    onExpandedOccurrenceConsumed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val occurrences by dao.getAllOccurrences().collectAsState(initial = emptyList())
@@ -73,23 +84,55 @@ fun OccurrencesScreen(
     val sortedOccList = remember(occurrences) { occurrences.sortedBy { it.occurrence.id } }
 
     val canSeeConselho = currentUser.role == "Síndico" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "ADMIN"
+    val isSuperAdmin = isSuperAdminUser(currentUser)
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = if (canSeeConselho) listOf("Zelador", "Conselho", "Arquivadas") else listOf("Zelador")
+    val tabs = buildList {
+        add("Zelador")
+        if (canSeeConselho) add("Conselho")
+        if (canSeeConselho) add("Arquivadas")
+        if (isSuperAdmin) add("Admin")
+    }
 
     var showAddDialog by remember { mutableStateOf(initialShowAddDialog) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchVisible by remember { mutableStateOf(false) }
+    var selectedStatusFilter by remember { mutableStateOf("Todas") }
 
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var occToDelete by remember { mutableStateOf<OccurrenceEntity?>(null) }
-    var expandedOccurrenceId by remember { mutableStateOf<Long?>(null) }
+    var occurrenceToToggleUrgent by remember { mutableStateOf<OccurrenceWithMessages?>(null) }
+    var expandedOccurrenceId by remember { mutableStateOf<Long?>(initialExpandedOccurrenceId) }
+    var currentSessionExpandedOccurrenceId by remember { mutableStateOf<Long?>(null) }
+    var targetSelectedMessage by remember { mutableStateOf<OccurrenceMessageEntity?>(selectedMessage) }
+
+    LaunchedEffect(initialExpandedOccurrenceId, occurrences) {
+        if (initialExpandedOccurrenceId != null) {
+            expandedOccurrenceId = initialExpandedOccurrenceId
+            val targetOcc = occurrences.find { it.occurrence.id == initialExpandedOccurrenceId }
+            if (targetOcc != null) {
+                val isArchived = targetOcc.occurrence.status == "ARQUIVADA"
+                val isConselho = targetOcc.occurrence.type == "CONSELHO"
+                selectedTab = when {
+                    isArchived && tabs.contains("Arquivadas") -> tabs.indexOf("Arquivadas")
+                    isConselho && tabs.contains("Conselho") -> tabs.indexOf("Conselho")
+                    else -> 0
+                }
+                val lastMsg = targetOcc.messages.maxByOrNull { it.message.id }?.message
+                if (lastMsg != null) {
+                    targetSelectedMessage = lastMsg
+                }
+            }
+            onExpandedOccurrenceConsumed()
+        }
+    }
 
     val unreadCardCounts = remember(occurrences, currentUser) {
         var zeladorCount = 0
         var conselhoCount = 0
         var arquivadasCount = 0
+        var adminCount = 0
 
         for (occWithMsgs in occurrences) {
             val occ = occWithMsgs.occurrence
@@ -102,7 +145,10 @@ fun OccurrencesScreen(
             if (hasUnread) {
                 val isArchived = occ.status == "ARQUIVADA"
                 val isConselho = occ.type == "CONSELHO"
+                val isAdmin = occ.type == "ADMIN"
+                
                 when {
+                    isAdmin -> adminCount++
                     isArchived -> arquivadasCount++
                     isConselho -> conselhoCount++
                     else -> zeladorCount++
@@ -113,7 +159,8 @@ fun OccurrencesScreen(
         mapOf(
             "Zelador" to zeladorCount,
             "Conselho" to conselhoCount,
-            "Arquivadas" to arquivadasCount
+            "Arquivadas" to arquivadasCount,
+            "Admin" to adminCount
         )
     }
 
@@ -121,27 +168,49 @@ fun OccurrencesScreen(
         val isArchived = it.occurrence.status == "ARQUIVADA"
         val isTargetConselho = it.occurrence.type == "CONSELHO"
         val isTargetZelador = it.occurrence.type == "GERAL"
+        val isTargetAdmin = it.occurrence.type == "ADMIN"
 
-        val matchesTab = when {
-            tabs.getOrNull(selectedTab) == "Arquivadas" -> isArchived
-            tabs.getOrNull(selectedTab) == "Conselho" -> isTargetConselho && !isArchived
+        val matchesTab = when (tabs.getOrNull(selectedTab)) {
+            "Arquivadas" -> isArchived && !isTargetAdmin
+            "Conselho" -> isTargetConselho && !isArchived
+            "Admin" -> isTargetAdmin
             else -> isTargetZelador && !isArchived
         }
 
-        val canAccess = when (currentUser.role) {
-            "Zelador" -> isTargetZelador && !isArchived
-            "Conselheiro Fiscal", "Síndico", "ADMIN" -> true
-            else -> isTargetZelador && !isArchived
-        }
+        val canAccess = canUserSeeOccurrence(it.occurrence, currentUser)
 
         val matchesSearch = it.occurrence.title.contains(searchQuery, ignoreCase = true) ||
                 it.occurrence.apartment.contains(searchQuery, ignoreCase = true) ||
                 it.messages.any { msg -> msg.message.text.contains(searchQuery, ignoreCase = true) }
 
-        matchesTab && canAccess && (searchQuery.isEmpty() || matchesSearch)
-    }
+        val matchesStatusFilter = when (selectedStatusFilter) {
+            "Urgentes" -> it.occurrence.isUrgent
+            "Abertas" -> it.occurrence.status == "ABERTA" && !it.occurrence.isUrgent
+            "Finalizadas" -> it.occurrence.status == "FINALIZADA"
+            else -> true
+        }
+
+        matchesTab && canAccess && matchesStatusFilter && (searchQuery.isEmpty() || matchesSearch)
+    }.sortedWith(
+        compareBy<OccurrenceWithMessages> { 
+            when {
+                it.occurrence.isUrgent -> 0
+                it.occurrence.status == "ABERTA" -> 1
+                it.occurrence.status == "FINALIZADA" -> 2
+                else -> 3
+            }
+        }.thenByDescending { 
+            val occIndex = sortedOccList.indexOfFirst { sorted -> sorted.occurrence.id == it.occurrence.id }
+            if (occIndex >= 0) (occIndex + 1).toLong() else it.occurrence.id
+        }
+    )
 
     Box(Modifier.fillMaxSize()) {
+        DisposableEffect(Unit) {
+            onDispose {
+                currentSessionExpandedOccurrenceId = null
+            }
+        }
         Column(Modifier.fillMaxSize()) {
             if (selectedIds.isNotEmpty() && currentUser.role == "ADMIN") {
                 Surface(
@@ -215,11 +284,52 @@ fun OccurrencesScreen(
                     )
                 }
 
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val filterOptions = listOf(
+                        Triple("Todas", Icons.Default.FormatListBulleted, "Todas as Ocorrências"),
+                        Triple("Urgentes", Icons.Default.Warning, "Ocorrências Urgentes"),
+                        Triple("Abertas", Icons.Default.LockOpen, "Ocorrências Abertas (sem urgência)"),
+                        Triple("Finalizadas", Icons.Default.CheckCircle, "Ocorrências Finalizadas")
+                    )
+                    filterOptions.forEach { (key, icon, tooltipText) ->
+                        val isSelected = selectedStatusFilter == key
+                        val tintColor = when (key) {
+                            "Urgentes" -> Color.Red
+                            "Abertas" -> Color(0xFF1976D2)
+                            "Finalizadas" -> Color(0xFF388E3C)
+                            else -> MaterialTheme.colorScheme.primary
+                        }
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedStatusFilter = key },
+                            label = {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = tooltipText,
+                                    tint = if (isSelected) tintColor else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = if (key == "Urgentes") Color(0xFFFFEBEE) else MaterialTheme.colorScheme.primaryContainer
+                            )
+                        )
+                    }
+                }
+
                 if (filteredOccurrences.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        val message = when (tabs.getOrNull(selectedTab)) {
-                            "Arquivadas" -> "Nenhuma ocorrência arquivada."
-                            "Conselho" -> "Nenhuma pauta do Conselho."
+                        val message = when {
+                            selectedStatusFilter != "Todas" -> "Nenhuma ocorrência (${selectedStatusFilter.lowercase()}) encontrada."
+                            tabs.getOrNull(selectedTab) == "Arquivadas" -> "Nenhuma ocorrência arquivada."
+                            tabs.getOrNull(selectedTab) == "Conselho" -> "Nenhuma pauta do Conselho."
+                            tabs.getOrNull(selectedTab) == "Admin" -> "Nenhuma ocorrência."
                             else -> "Nenhuma ocorrência para o Zelador."
                         }
                         Text(message, color = Color.Gray)
@@ -229,10 +339,11 @@ fun OccurrencesScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(bottom = 80.dp)
                     ) {
-                        items(filteredOccurrences) { occWithMsgs ->
+                        items(filteredOccurrences, key = { it.occurrence.id }) { occWithMsgs ->
                             val isSelected = selectedIds.contains(occWithMsgs.occurrence.id)
                             val occIndex = sortedOccList.indexOfFirst { it.occurrence.id == occWithMsgs.occurrence.id }
                             val occNumber = if (occIndex >= 0) (occIndex + 1).toLong() else occWithMsgs.occurrence.id
+                            val canPrioritize = currentUser.role == "Zelador" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "Síndico" || currentUser.role == "ADMIN" || isSuperAdmin
                             OccurrenceCard(
                                 occWithMsgs = occWithMsgs,
                                 occNumber = occNumber,
@@ -240,15 +351,110 @@ fun OccurrencesScreen(
                                 userRoleMap = userRoleMap,
                                 isCompact = isCompact,
                                 isSelected = isSelected,
+                                canPrioritize = canPrioritize,
+                                onToggleUrgent = {
+                                    occurrenceToToggleUrgent = occWithMsgs
+                                },
+                                initiallyExpanded = expandedOccurrenceId == occWithMsgs.occurrence.id,
                                 onLongClickCard = {
                                     if (currentUser.role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true)) {
                                         occToDelete = occWithMsgs.occurrence
                                     }
                                 },
-                                selectedMessage = selectedMessage,
+                                selectedMessage = targetSelectedMessage ?: selectedMessage,
                                 onMessageSelected = onMessageSelected,
+                                onDefineBudget = { name, total, count, instValue, start, dur, attachedUri ->
+                                    scope.launch(Dispatchers.IO) {
+                                        val msgId = System.currentTimeMillis()
+                                        val roleLabel = when (currentUser.role) {
+                                            "Zelador" -> "Zelador"
+                                            "Conselheiro Fiscal" -> "Conselheiro"
+                                            else -> "Síndico"
+                                        }
+
+                                        val budgetText = StringBuilder().apply {
+                                            append("Orçamento enviado pelo $roleLabel (Aguardando confirmação dos conselheiros e autorização do Síndico):\n\n")
+                                            append("🏢 Prestador/Fornecedor: $name\n")
+                                            if (total > 0.0) {
+                                                append("💰 Valor Total: R$ ${formatCurrency(total)}\n")
+                                                append("💳 Parcelas: $count x R$ ${formatCurrency(instValue)}\n")
+                                            }
+                                            if (!start.isNullOrBlank()) append("📅 Início: $start\n")
+                                            if (!dur.isNullOrBlank()) append("⏱️ Duração: $dur")
+                                        }.toString()
+
+                                        val msg = OccurrenceMessageEntity(
+                                            id = msgId,
+                                            occurrenceId = occWithMsgs.occurrence.id,
+                                            senderUsername = currentUser.username,
+                                            text = budgetText,
+                                            date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()),
+                                            isCouncilOnly = true,
+                                            isSindicoOnly = false,
+                                            isBudget = true,
+                                            isVotingClosed = false,
+                                            syncStatus = SyncStatus.PENDING_UPDATE.name
+                                        )
+                                        dao.insertOccurrenceMessageReplace(msg)
+                                        FirestoreSyncManager.syncOccurrenceMessage(msg)
+                                        OccurrenceSyncScheduler.scheduleSync(context)
+
+                                        val attId = System.currentTimeMillis() + 1
+                                        val filePath = if (attachedUri != null) {
+                                            copyFileToInternalStorage(context, attachedUri) ?: ""
+                                        } else {
+                                            ""
+                                        }
+                                        val fileName = if (attachedUri != null) {
+                                            getFileName(context, attachedUri)
+                                        } else {
+                                            "Orçamento: $name (R$ ${formatCurrency(total)})"
+                                        }
+                                        val att = OccurrenceAttachmentEntity(
+                                            id = attId,
+                                            messageId = msgId,
+                                            occurrenceId = occWithMsgs.occurrence.id,
+                                            fileName = fileName,
+                                            filePath = filePath,
+                                            syncStatus = SyncStatus.PENDING_UPDATE.name
+                                        )
+                                        dao.insertAttachmentReplace(att)
+                                        FirestoreSyncManager.syncAttachment(att)
+                                        OccurrenceSyncScheduler.scheduleSync(context)
+
+                                        val readEntity = OccurrenceMessageReadEntity(
+                                            id = generateReadEntityId(msgId, currentUser.username),
+                                            messageId = msgId,
+                                            username = currentUser.username,
+                                            timestamp = System.currentTimeMillis(),
+                                            syncStatus = SyncStatus.PENDING_UPDATE.name
+                                        )
+                                        dao.insertOccurrenceMessageRead(readEntity)
+                                        FirestoreSyncManager.syncOccurrenceMessageRead(readEntity)
+                                        OccurrenceSyncScheduler.scheduleSync(context)
+
+                                        val pOcc = dao.getOccurrenceEntityById(occWithMsgs.occurrence.id)
+                                        if (pOcc != null) {
+                                            pOcc.syncStatus = SyncStatus.PENDING_UPDATE.name
+                                            dao.updateOccurrence(pOcc)
+                                            FirestoreSyncManager.syncOccurrence(pOcc)
+                                            OccurrenceSyncScheduler.scheduleSync(context)
+                                        }
+
+                                        sendFcmPushNotification(
+                                            context = context,
+                                            dao = dao,
+                                            title = "Novo Orçamento do $roleLabel",
+                                            body = "${occWithMsgs.occurrence.title}: Orçamento $name enviado aguardando confirmação dos conselheiros e autorização do Síndico.",
+                                            senderUsername = currentUser.username,
+                                            occurrenceId = occWithMsgs.occurrence.id
+                                        )
+                                        val logAction = "ORCAMENTO_${roleLabel.uppercase()}_DEFINIDO"
+                                        dao.insertOccurrenceLog(OccurrenceLogEntity(occurrenceId = occWithMsgs.occurrence.id, username = currentUser.username, action = logAction))
+                                    }
+                                },
                                 onReply = { text, isCouncilOnly, isSindicoOnly, uris, isBudget ->
-                                    scope.launch {
+                                    scope.launch(Dispatchers.IO) {
                                         val msgId = System.currentTimeMillis()
                                         val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
                                         val msg = OccurrenceMessageEntity(
@@ -259,27 +465,68 @@ fun OccurrencesScreen(
                                             date = dateStr,
                                             isCouncilOnly = isCouncilOnly,
                                             isSindicoOnly = isSindicoOnly,
-                                            isBudget = isBudget
+                                            isBudget = isBudget,
+                                            syncStatus = SyncStatus.PENDING_UPDATE.name
                                         )
                                         dao.insertOccurrenceMessageReplace(msg)
                                         FirestoreSyncManager.syncOccurrenceMessage(msg)
-                                        FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
+                                        
+                                        withContext(Dispatchers.Main) {
+                                            currentSessionExpandedOccurrenceId = occWithMsgs.occurrence.id
+                                            expandedOccurrenceId = occWithMsgs.occurrence.id
+                                        }
+
+                                        OccurrenceSyncScheduler.scheduleSync(context)
+                                        
+                                        val parentOcc = dao.getOccurrenceEntityById(occWithMsgs.occurrence.id)
+                                        if (parentOcc != null) {
+                                            parentOcc.syncStatus = SyncStatus.PENDING_UPDATE.name
+                                            dao.updateOccurrence(parentOcc)
+                                            FirestoreSyncManager.syncOccurrence(parentOcc)
+                                            OccurrenceSyncScheduler.scheduleSync(context)
+                                        }
+
+                                        val readEntity = OccurrenceMessageReadEntity(
+                                            id = generateReadEntityId(msgId, currentUser.username),
+                                            messageId = msgId,
+                                            username = currentUser.username,
+                                            timestamp = System.currentTimeMillis(),
+                                            syncStatus = SyncStatus.PENDING_UPDATE.name
+                                        )
+                                        dao.insertOccurrenceMessageRead(readEntity)
+                                        FirestoreSyncManager.syncOccurrenceMessageRead(readEntity)
+
+                                        sendFcmPushNotification(
+                                            context = context,
+                                            dao = dao,
+                                            title = "Nova Mensagem em: ${occWithMsgs.occurrence.title}",
+                                            body = "${currentUser.username}: $text",
+                                            senderUsername = currentUser.username,
+                                            occurrenceId = occWithMsgs.occurrence.id
+                                        )
 
                                         uris.forEachIndexed { index, uri ->
                                             uploadImageToCloudinary(context, uri) { path ->
                                                 if (path != null) {
-                                                    scope.launch {
+                                                    scope.launch(Dispatchers.IO) {
                                                         val attId = System.currentTimeMillis() + index + 1
                                                         val att = OccurrenceAttachmentEntity(
                                                             id = attId,
                                                             messageId = msgId,
                                                             occurrenceId = occWithMsgs.occurrence.id,
                                                             fileName = getFileName(context, uri),
-                                                            filePath = path
+                                                            filePath = path,
+                                                            syncStatus = SyncStatus.PENDING_UPDATE.name
                                                         )
                                                         dao.insertAttachmentReplace(att)
                                                         FirestoreSyncManager.syncAttachment(att)
-                                                        FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
+                                                        OccurrenceSyncScheduler.scheduleSync(context)
+                                                        val pOcc = dao.getOccurrenceEntityById(occWithMsgs.occurrence.id)
+                                                        if (pOcc != null) {
+                                                            pOcc.syncStatus = SyncStatus.PENDING_UPDATE.name
+                                                            dao.updateOccurrence(pOcc)
+                                                            FirestoreSyncManager.syncOccurrence(pOcc)
+                                                        }
                                                     }
                                                 }
                                             }
@@ -306,8 +553,9 @@ fun OccurrencesScreen(
                                             occWithMsgs.occurrence.copy(status = newStatus)
                                         }
 
-                                        dao.updateOccurrence(updatedOcc)
-                                        FirestoreSyncManager.syncOccurrence(updatedOcc)
+                                        updatedOcc.syncStatus = SyncStatus.PENDING_UPDATE.name
+dao.updateOccurrence(updatedOcc)
+OccurrenceSyncScheduler.scheduleSync(context)
 
                                         val sysMsgText = when (newStatus) {
                                             "ARQUIVADA" -> "Ocorrência arquivada por ${currentUser.username}."
@@ -317,37 +565,65 @@ fun OccurrencesScreen(
                                             else -> "Status alterado para $newStatus por ${currentUser.username}."
                                         }
 
+                                        val sysMsgId = System.currentTimeMillis()
                                         val sysMsg = OccurrenceMessageEntity(
-                                            id = System.currentTimeMillis(),
+                                            id = sysMsgId,
                                             occurrenceId = occWithMsgs.occurrence.id,
                                             senderUsername = "SISTEMA",
                                             text = sysMsgText,
                                             date = dateStr
                                         )
-                                        dao.insertOccurrenceMessageReplace(sysMsg)
-                                        FirestoreSyncManager.syncOccurrenceMessage(sysMsg)
-                                        FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
+                                        sysMsg.syncStatus = SyncStatus.PENDING_UPDATE.name
+dao.insertOccurrenceMessageReplace(sysMsg)
+OccurrenceSyncScheduler.scheduleSync(context)
+                                        val sysRead = OccurrenceMessageReadEntity(
+                                            id = generateReadEntityId(sysMsgId, currentUser.username),
+                                            messageId = sysMsgId,
+                                            username = currentUser.username,
+                                            timestamp = System.currentTimeMillis()
+                                        )
+                                        sysRead.syncStatus = SyncStatus.PENDING_UPDATE.name
+dao.insertOccurrenceMessageRead(sysRead)
+OccurrenceSyncScheduler.scheduleSync(context)
+                                        dao.getOccurrenceEntityById(occWithMsgs.occurrence.id)?.let { it.syncStatus = SyncStatus.PENDING_UPDATE.name; dao.updateOccurrence(it); OccurrenceSyncScheduler.scheduleSync(context) }
 
                                         val actionName = if (newStatus == "DESARQUIVAR") "STATUS_DESARQUIVADA" else "STATUS_$newStatus"
                                         dao.insertOccurrenceLog(OccurrenceLogEntity(occurrenceId = occWithMsgs.occurrence.id, username = currentUser.username, action = actionName))
                                     }
                                 },
                                 onMarkAsRead = {
-                                    scope.launch {
+                                    scope.launch(Dispatchers.IO) {
                                         val unreadMsgs = occWithMsgs.messages.filter { msgWithAtt ->
                                             isMessageUnreadForUser(msgWithAtt.message, occWithMsgs.occurrence, currentUser, msgWithAtt.reads)
                                         }
                                         unreadMsgs.forEach { msgWithAtt ->
+                                            val msg = msgWithAtt.message
+                                            msg.isRead = true
+                                            msg.syncStatus = SyncStatus.PENDING_UPDATE.name
+dao.updateOccurrenceMessage(msg)
+OccurrenceSyncScheduler.scheduleSync(context)
+
                                             val readEntity = OccurrenceMessageReadEntity(
-                                                id = System.currentTimeMillis() + msgWithAtt.message.id,
-                                                messageId = msgWithAtt.message.id,
+                                                id = generateReadEntityId(msg.id, currentUser.username),
+                                                messageId = msg.id,
                                                 username = currentUser.username,
                                                 timestamp = System.currentTimeMillis()
                                             )
                                             dao.insertOccurrenceMessageRead(readEntity)
-                                            FirestoreSyncManager.syncOccurrenceMessageRead(readEntity)
+                                            try {
+                                                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                                com.google.android.gms.tasks.Tasks.await(
+                                                    db.collection("occurrence_message_reads").document(readEntity.id).set(readEntity),
+                                                    5,
+                                                    java.util.concurrent.TimeUnit.SECONDS
+                                                )
+                                            } catch (e: Exception) {
+                                                android.util.Log.e("FIRESTORE_SYNC", "Failed to sync message read: ${e.message}")
+                                            }
                                         }
-                                        cancelAppNotification(context, occWithMsgs.occurrence.id.toInt())
+                                        withContext(Dispatchers.Main) {
+                                            cancelAppNotification(context, occWithMsgs.occurrence.id.toInt())
+                                        }
                                     }
                                 },
                                 onDeleteMessage = { msgId ->
@@ -363,7 +639,8 @@ fun OccurrencesScreen(
 
                                             if (isAdmin || (isSender && isWithin20Min)) {
                                                 dao.deleteOccurrenceMessage(msgId)
-                                                FirestoreSyncManager.syncOccurrenceMessage(OccurrenceMessageEntity(id = msgId), isDelete = true)
+                                                OccurrenceMessageEntity(id = msgId).syncStatus = if (true) SyncStatus.PENDING_DELETE.name else SyncStatus.PENDING_UPDATE.name
+OccurrenceSyncScheduler.scheduleSync(context)
                                             } else {
                                                 withContext(Dispatchers.Main) {
                                                     Toast.makeText(
@@ -384,9 +661,10 @@ fun OccurrencesScreen(
                                             val elapsed = System.currentTimeMillis() - creationTime
                                             if (elapsed <= 20 * 60 * 1000L) {
                                                 val updatedMsg = targetMsg.copy(text = newText, isEdited = true)
-                                                dao.updateOccurrenceMessage(updatedMsg)
-                                                FirestoreSyncManager.syncOccurrenceMessage(updatedMsg)
-                                                FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
+                                                updatedMsg.syncStatus = SyncStatus.PENDING_UPDATE.name
+dao.updateOccurrenceMessage(updatedMsg)
+OccurrenceSyncScheduler.scheduleSync(context)
+                                                dao.getOccurrenceEntityById(occWithMsgs.occurrence.id)?.let { it.syncStatus = SyncStatus.PENDING_UPDATE.name; dao.updateOccurrence(it); OccurrenceSyncScheduler.scheduleSync(context) }
                                                 dao.insertOccurrenceLog(
                                                     OccurrenceLogEntity(
                                                         occurrenceId = occWithMsgs.occurrence.id,
@@ -406,76 +684,108 @@ fun OccurrencesScreen(
                                         }
                                     }
                                 },
-                                onToggleVote = { attId, hasVoted ->
+                                onToggleVote = { attId, voteType ->
                                     scope.launch {
-                                        if (hasVoted) {
+                                        val existingVote = dao.getVoteByUserAndAttachment(attId, currentUser.username)
+                                        if (existingVote != null && existingVote.voteType == voteType) {
                                             dao.deleteAttachmentVote(attId, currentUser.username)
-                                            FirestoreSyncManager.syncAttachmentVote(
-                                                OccurrenceAttachmentVoteEntity(attachmentId = attId, username = currentUser.username),
-                                                isDelete = true
-                                            )
+                                            existingVote.syncStatus = if (true) SyncStatus.PENDING_DELETE.name else SyncStatus.PENDING_UPDATE.name
+OccurrenceSyncScheduler.scheduleSync(context)
                                         } else {
-                                            val vote = OccurrenceAttachmentVoteEntity(attachmentId = attId, username = currentUser.username)
-                                            dao.insertAttachmentVote(vote)
-                                            FirestoreSyncManager.syncAttachmentVote(vote)
+                                            if (existingVote != null) {
+                                                dao.deleteAttachmentVote(attId, currentUser.username)
+                                                existingVote.syncStatus = if (true) SyncStatus.PENDING_DELETE.name else SyncStatus.PENDING_UPDATE.name
+OccurrenceSyncScheduler.scheduleSync(context)
+                                            }
+                                            val vote = OccurrenceAttachmentVoteEntity(
+                                                attachmentId = attId,
+                                                username = currentUser.username,
+                                                voteType = voteType
+                                            )
+                                            vote.syncStatus = SyncStatus.PENDING_UPDATE.name
+dao.insertAttachmentVote(vote)
+OccurrenceSyncScheduler.scheduleSync(context)
                                         }
                                     }
                                 },
                                 onCloseVoting = { msgId, name, total, count, instValue, start, dur ->
                                     scope.launch {
                                         val targetMsg = dao.getOccurrenceMessageById(msgId)
-                                        if (targetMsg != null) {
-                                            val isSender = targetMsg.senderUsername.equals(currentUser.username, ignoreCase = true) ||
-                                                    (targetMsg.senderUsername == "admin" && currentUser.role == "ADMIN")
-                                            if (!isSender) return@launch
-                                        }
+                                        val isAuthorizedToClose = currentUser.role == "Síndico" || currentUser.role == "ADMIN" || currentUser.username.equals("admin", ignoreCase = true) || (targetMsg != null && targetMsg.senderUsername.equals(currentUser.username, ignoreCase = true))
+                                        if (!isAuthorizedToClose) return@launch
                                         dao.closeOccurrenceVoting(msgId)
                                         val closedMsg = dao.getOccurrenceMessageById(msgId)
-                                        if (closedMsg != null) {
-                                            FirestoreSyncManager.syncOccurrenceMessage(closedMsg)
-                                        }
-                                        if (name != null && total != null && count != null && instValue != null) {
-                                            val resultText = StringBuilder().apply {
-                                                append("Votação encerrada.\n\n")
-                                                append("✅ Orçamento Aprovado: $name\n")
-                                                append("💰 Valor Total: R$ ${formatCurrency(total)}\n")
-                                                append("💳 Parcelas: $count x R$ ${formatCurrency(instValue)}\n")
-                                                if (!start.isNullOrBlank()) append("📅 Início: $start\n")
-                                                if (!dur.isNullOrBlank()) append("⏱️ Duração: $dur")
-                                            }.toString()
-                                            val sysMsgId = System.currentTimeMillis()
-                                            val msg = OccurrenceMessageEntity(
-                                                id = sysMsgId,
-                                                occurrenceId = occWithMsgs.occurrence.id,
-                                                senderUsername = "SISTEMA",
-                                                text = resultText,
-                                                date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()),
-                                                isCouncilOnly = false,
-                                                isSindicoOnly = false
-                                            )
-                                            dao.insertOccurrenceMessageReplace(msg)
-                                            FirestoreSyncManager.syncOccurrenceMessage(msg)
-                                            FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
-                                            sendFcmPushNotification(
-                                                dao = dao,
-                                                title = "Votação Encerrada na Ocorrência",
-                                                body = "${occWithMsgs.occurrence.title}: Votação encerrada no orçamento $name.",
-                                                senderUsername = currentUser.username,
-                                                occurrenceId = occWithMsgs.occurrence.id
-                                            )
-                                            dao.insertOccurrenceLog(OccurrenceLogEntity(occurrenceId = occWithMsgs.occurrence.id, username = currentUser.username, action = "VOTACAO_ENCERRADA"))
 
+                                        val isRejected = start == "Rejeitado" || name?.contains("Rejeitado", ignoreCase = true) == true
+
+                                        val extractedName = if (!name.isNullOrBlank() && name != "Orçamento Aprovado" && name != "Orçamento Rejeitado") {
+                                            name
+                                        } else {
+                                            val line = closedMsg?.text?.lines()?.firstOrNull { it.contains("Prestador/Fornecedor:") || it.contains("Orçamento:") }
+                                            line?.substringAfter(":")?.trim() ?: "Orçamento"
+                                        }
+
+                                        val extractedTotal = if (total != null && total > 0.0) {
+                                            total
+                                        } else {
+                                            val line = closedMsg?.text?.lines()?.firstOrNull { it.contains("Valor Total:", ignoreCase = true) }
+                                            if (line != null) {
+                                                val clean = line.replace("R$", "").replace(".", "").replace(",", ".").filter { it.isDigit() || it == '.' }
+                                                clean.toDoubleOrNull() ?: 0.0
+                                            } else {
+                                                0.0
+                                            }
+                                        }
+
+                                        val effectiveName = extractedName
+                                        val effectiveTotal = extractedTotal
+                                        val effectiveCount = if (count != null && count > 0) count else 1
+                                        val effectiveInstValue = if (instValue != null && instValue > 0.0) instValue else if (effectiveTotal > 0.0) effectiveTotal / effectiveCount else 0.0
+
+                                        if (closedMsg != null) {
+                                            val updatedText = if (isRejected) {
+                                                StringBuilder().apply {
+                                                    append("❌ Status: Orçamento Rejeitado\n\n")
+                                                    append("🏢 Orçamento: $effectiveName\n")
+                                                    append("⚠️ Votação encerrada com rejeição.")
+                                                }.toString()
+                                            } else {
+                                                StringBuilder().apply {
+                                                    append("✅ Status: Orçamento Aprovado\n\n")
+                                                    append("🏢 Prestador/Fornecedor: $effectiveName\n")
+                                                    if (effectiveTotal > 0.0) {
+                                                        append("💰 Valor Total: R$ ${formatCurrency(effectiveTotal)}\n")
+                                                        append("💳 Parcelas: $effectiveCount x R$ ${formatCurrency(effectiveInstValue)}\n")
+                                                    }
+                                                    if (!start.isNullOrBlank()) append("📅 Início: $start\n")
+                                                    if (!dur.isNullOrBlank()) append("⏱️ Duração: $dur")
+                                                }.toString()
+                                            }
+                                            val finalMsg = closedMsg.copy(text = updatedText, isVotingClosed = true)
+                                            finalMsg.syncStatus = SyncStatus.PENDING_UPDATE.name
+dao.updateOccurrenceMessage(finalMsg)
+OccurrenceSyncScheduler.scheduleSync(context)
+                                        }
+
+                                        if (isRejected) {
+                                            val relatedTxs = dao.getTransactionsByRelatedId(occWithMsgs.occurrence.id)
+                                            relatedTxs.forEach { tx ->
+                                                dao.deleteTransaction(tx.id)
+                                                FirestoreSyncManager.syncTransaction(tx, isDelete = true)
+                                            }
+                                            dao.deleteTransactionsByRelatedId(occWithMsgs.occurrence.id)
+                                        } else if (effectiveTotal > 0.0) {
                                             val dueDateBase = Calendar.getInstance()
-                                            for (i in 1..count) {
+                                            for (i in 1..effectiveCount) {
                                                 val dueDateStr = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(dueDateBase.time)
                                                 val tx = FinanceTransactionEntity(
-                                                    title = "Orçamento: $name",
-                                                    description = "Ocorrência #${occWithMsgs.occurrence.id} - Parcela $i/$count",
+                                                    title = "Orçamento: $effectiveName",
+                                                    description = "Ocorrência #${occWithMsgs.occurrence.id} - Parcela $i/$effectiveCount",
                                                     type = "PAYABLE",
-                                                    amount = instValue,
+                                                    amount = effectiveInstValue,
                                                     dueDate = dueDateStr,
                                                     installmentNumber = i,
-                                                    totalInstallments = count,
+                                                    totalInstallments = effectiveCount,
                                                     groupId = "OCC_${occWithMsgs.occurrence.id}_$msgId",
                                                     category = "Ocorrência",
                                                     relatedId = occWithMsgs.occurrence.id
@@ -485,6 +795,17 @@ fun OccurrencesScreen(
                                                 dueDateBase.add(Calendar.MONTH, 1)
                                             }
                                         }
+
+                                        dao.getOccurrenceEntityById(occWithMsgs.occurrence.id)?.let { it.syncStatus = SyncStatus.PENDING_UPDATE.name; dao.updateOccurrence(it); OccurrenceSyncScheduler.scheduleSync(context) }
+                                        sendFcmPushNotification(
+                                            context = context,
+                                            dao = dao,
+                                            title = if (isRejected) "Orçamento Rejeitado" else "Orçamento Aprovado",
+                                            body = "${occWithMsgs.occurrence.title}: Orçamento $effectiveName ${if (isRejected) "rejeitado" else "aprovado"}.",
+                                            senderUsername = currentUser.username,
+                                            occurrenceId = occWithMsgs.occurrence.id
+                                        )
+                                        dao.insertOccurrenceLog(OccurrenceLogEntity(occurrenceId = occWithMsgs.occurrence.id, username = currentUser.username, action = if (isRejected) "ORCAMENTO_REJEITADO" else "ORCAMENTO_APROVADO"))
                                     }
                                 },
                                 onDelete = {
@@ -496,7 +817,8 @@ fun OccurrencesScreen(
                                         }
                                         dao.deleteTransactionsByRelatedId(occWithMsgs.occurrence.id)
                                         dao.deleteOccurrence(occWithMsgs.occurrence.id)
-                                        FirestoreSyncManager.syncOccurrence(occWithMsgs.occurrence, isDelete = true)
+                                        occWithMsgs.occurrence.syncStatus = if (true) SyncStatus.PENDING_DELETE.name else SyncStatus.PENDING_UPDATE.name
+OccurrenceSyncScheduler.scheduleSync(context)
                                     }
                                 },
                                 onEditOccurrence = { newApartment, newTitle, newDescription ->
@@ -505,15 +827,17 @@ fun OccurrencesScreen(
                                             apartment = newApartment,
                                             title = newTitle
                                         )
-                                        dao.updateOccurrence(updatedOcc)
-                                        FirestoreSyncManager.syncOccurrence(updatedOcc)
+                                        updatedOcc.syncStatus = SyncStatus.PENDING_UPDATE.name
+dao.updateOccurrence(updatedOcc)
+OccurrenceSyncScheduler.scheduleSync(context)
 
                                         val firstMsg = occWithMsgs.messages.sortedBy { it.message.id }.firstOrNull()?.message
                                         if (firstMsg != null) {
-                                            val updatedMsg = firstMsg.copy(text = newDescription)
-                                            dao.insertOccurrenceMessageReplace(updatedMsg)
-                                            FirestoreSyncManager.syncOccurrenceMessage(updatedMsg)
-                                            FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
+                                            val updatedMsg = firstMsg.copy(text = newDescription, isEdited = true)
+                                            updatedMsg.syncStatus = SyncStatus.PENDING_UPDATE.name
+dao.updateOccurrenceMessage(updatedMsg)
+OccurrenceSyncScheduler.scheduleSync(context)
+                                            dao.getOccurrenceEntityById(occWithMsgs.occurrence.id)?.let { it.syncStatus = SyncStatus.PENDING_UPDATE.name; dao.updateOccurrence(it); OccurrenceSyncScheduler.scheduleSync(context) }
                                         } else {
                                             val newMsg = OccurrenceMessageEntity(
                                                 id = System.currentTimeMillis(),
@@ -522,9 +846,10 @@ fun OccurrencesScreen(
                                                 text = newDescription,
                                                 date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
                                             )
-                                            dao.insertOccurrenceMessageReplace(newMsg)
-                                            FirestoreSyncManager.syncOccurrenceMessage(newMsg)
-                                            FirestoreSyncManager.touchParentOccurrence(dao, occWithMsgs.occurrence.id)
+                                            newMsg.syncStatus = SyncStatus.PENDING_UPDATE.name
+dao.insertOccurrenceMessageReplace(newMsg)
+OccurrenceSyncScheduler.scheduleSync(context)
+                                            dao.getOccurrenceEntityById(occWithMsgs.occurrence.id)?.let { it.syncStatus = SyncStatus.PENDING_UPDATE.name; dao.updateOccurrence(it); OccurrenceSyncScheduler.scheduleSync(context) }
                                         }
 
                                         dao.insertOccurrenceLog(
@@ -573,6 +898,121 @@ fun OccurrencesScreen(
             )
         }
 
+        if (occurrenceToToggleUrgent != null) {
+            val targetOccWithMsgs = occurrenceToToggleUrgent!!
+            val isUrgentNow = targetOccWithMsgs.occurrence.isUrgent
+            AlertDialog(
+                onDismissRequest = { occurrenceToToggleUrgent = null },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.NotificationImportant,
+                        contentDescription = null,
+                        tint = if (isUrgentNow) Color.Gray else Color.Red
+                    )
+                },
+                title = {
+                    Text(if (isUrgentNow) "Remover Urgência" else "Confirmar Urgência")
+                },
+                text = {
+                    Text(
+                        if (isUrgentNow)
+                            "Tem certeza de que deseja remover a urgência da ocorrência #${targetOccWithMsgs.occurrence.id} (${targetOccWithMsgs.occurrence.title})?"
+                        else
+                            "Tem certeza de que deseja destacar a ocorrência #${targetOccWithMsgs.occurrence.id} (${targetOccWithMsgs.occurrence.title}) como URGENTE?"
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val occToProcess = targetOccWithMsgs
+                            occurrenceToToggleUrgent = null
+                            scope.launch(Dispatchers.IO) {
+                                val occId = occToProcess.occurrence.id
+                                com.example.condsuites.service.NotificationUtils.recordLocalAction(occId, "URGENT")
+                                com.example.condsuites.service.NotificationUtils.recordLocalAction(occId, "EDIT")
+
+                                val newUrgent = !occToProcess.occurrence.isUrgent
+                                val updatedOcc = occToProcess.occurrence.copy(isUrgent = newUrgent)
+                                updatedOcc.syncStatus = SyncStatus.PENDING_UPDATE.name
+                                dao.updateOccurrence(updatedOcc)
+                                com.example.condsuites.service.sync.UrgentOccurrenceScheduler.triggerImmediateCheck(context)
+                                OccurrenceSyncScheduler.scheduleSync(context)
+
+                                val sysMsgText = if (newUrgent) {
+                                    "🚨 Chamada destacada como URGENTE por ${currentUser.username}."
+                                } else {
+                                    "Urgência da chamada removida por ${currentUser.username}."
+                                }
+                                val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
+                                val sysMsgId = System.currentTimeMillis()
+                                val sysMsg = OccurrenceMessageEntity(
+                                    id = sysMsgId,
+                                    occurrenceId = occId,
+                                    senderUsername = "SISTEMA",
+                                    text = sysMsgText,
+                                    date = dateStr,
+                                    isRead = true,
+                                    syncStatus = SyncStatus.PENDING_UPDATE.name
+                                )
+                                dao.insertOccurrenceMessageReplace(sysMsg)
+                                FirestoreSyncManager.syncOccurrenceMessage(sysMsg)
+                                OccurrenceSyncScheduler.scheduleSync(context)
+
+                                val sysRead = OccurrenceMessageReadEntity(
+                                    id = generateReadEntityId(sysMsgId, currentUser.username),
+                                    messageId = sysMsgId,
+                                    username = currentUser.username,
+                                    timestamp = System.currentTimeMillis(),
+                                    syncStatus = SyncStatus.PENDING_UPDATE.name
+                                )
+                                dao.insertOccurrenceMessageRead(sysRead)
+                                FirestoreSyncManager.syncOccurrenceMessageRead(sysRead)
+                                OccurrenceSyncScheduler.scheduleSync(context)
+
+                                val pOcc = dao.getOccurrenceEntityById(occId)
+                                if (pOcc != null) {
+                                    pOcc.syncStatus = SyncStatus.PENDING_UPDATE.name
+                                    dao.updateOccurrence(pOcc)
+                                    FirestoreSyncManager.syncOccurrence(pOcc)
+                                    OccurrenceSyncScheduler.scheduleSync(context)
+                                }
+
+                                val logAction = if (newUrgent) "PRIORIZOU_URGENTE" else "DESMARCOU_URGENTE"
+                                dao.insertOccurrenceLog(
+                                    OccurrenceLogEntity(
+                                        occurrenceId = occId,
+                                        username = currentUser.username,
+                                        action = logAction
+                                    )
+                                )
+
+                                if (newUrgent) {
+                                    sendFcmPushNotification(
+                                        context = context,
+                                        dao = dao,
+                                        title = "🚨 Ocorrência URGENTE",
+                                        body = "'${occToProcess.occurrence.title}' foi destacada como URGENTE por ${currentUser.username}.",
+                                        senderUsername = currentUser.username,
+                                        occurrenceId = occId
+                                    )
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isUrgentNow) MaterialTheme.colorScheme.primary else Color.Red
+                        )
+                    ) {
+                        Text(if (isUrgentNow) "Remover Urgência" else "Confirmar Urgência")
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(onClick = { occurrenceToToggleUrgent = null }) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
+
         if (showDeleteConfirm) {
             var hasBudgetsInSelected by remember { mutableStateOf(false) }
             LaunchedEffect(selectedIds) {
@@ -613,7 +1053,8 @@ fun OccurrencesScreen(
                                     dao.deleteTransactionsByRelatedId(id)
                                     dao.deleteOccurrence(id)
                                     val occToDelete = occurrences.firstOrNull { it.occurrence.id == id }?.occurrence
-                                    if (occToDelete != null) FirestoreSyncManager.syncOccurrence(occToDelete, isDelete = true)
+                                    if (occToDelete != null) occToDelete.syncStatus = if (true) SyncStatus.PENDING_DELETE.name else SyncStatus.PENDING_UPDATE.name
+OccurrenceSyncScheduler.scheduleSync(context)
                                 }
                                 selectedIds = emptySet()
                                 showDeleteConfirm = false
@@ -629,13 +1070,17 @@ fun OccurrencesScreen(
         }
 
         if (showAddDialog) {
+            val initialDest = if (tabs.getOrNull(selectedTab) == "Admin") "ADMIN" else null
             RegisterOccurrenceDialog(
                 currentUser = currentUser, 
                 dao = dao, 
+                initialDestination = initialDest,
                 onDismiss = { showAddDialog = false }, 
                 onConfirm = { title, desc, apt, urgent, uris, type -> 
                     scope.launch(Dispatchers.IO) { 
                         val occId = System.currentTimeMillis()
+                        com.example.condsuites.service.NotificationUtils.recordLocalAction(occId, "NEW_OCCURRENCE")
+                        com.example.condsuites.service.NotificationUtils.recordLocalAction(occId, "EDIT")
                         val msgId = occId + 1
                         val newOcc = OccurrenceEntity(
                             id = occId,
@@ -645,27 +1090,37 @@ fun OccurrencesScreen(
                             createdByUsername = currentUser.username,
                             date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()),
                             type = type,
-                            isUrgent = urgent
+                            isUrgent = urgent,
+                            syncStatus = SyncStatus.PENDING_UPDATE.name
                         )
                         dao.insertOccurrenceReplace(newOcc)
+                        FirestoreSyncManager.syncOccurrence(newOcc)
+                        if (urgent) {
+                            com.example.condsuites.service.sync.UrgentOccurrenceScheduler.triggerImmediateCheck(context)
+                        }
+                        OccurrenceSyncScheduler.scheduleSync(context)
+
+                        val notifTitle = if (urgent) "🚨 URGENTE: Nova Ocorrência - $title" else "Nova Ocorrência: $title"
                         sendFcmPushNotification(
+                            context = context,
                             dao = dao,
-                            title = "Nova Ocorrência: $title",
+                            title = notifTitle,
                             body = "Unidade $apt: $desc",
                             senderUsername = currentUser.username,
                             occurrenceId = occId
                         )
-                        FirestoreSyncManager.syncOccurrence(newOcc)
 
                         val firstMsg = OccurrenceMessageEntity(
                             id = msgId,
                             occurrenceId = occId,
                             senderUsername = currentUser.username,
                             text = desc,
-                            date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
+                            date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date()),
+                            syncStatus = SyncStatus.PENDING_UPDATE.name
                         )
                         dao.insertOccurrenceMessageReplace(firstMsg)
                         FirestoreSyncManager.syncOccurrenceMessage(firstMsg)
+                        OccurrenceSyncScheduler.scheduleSync(context)
 
                         uris.forEachIndexed { index, uri -> 
                             uploadImageToCloudinary(context, uri) { path -> 
@@ -677,10 +1132,12 @@ fun OccurrencesScreen(
                                             occurrenceId = occId,
                                             messageId = msgId,
                                             fileName = getFileName(context, uri),
-                                            filePath = path
+                                            filePath = path,
+                                            syncStatus = SyncStatus.PENDING_UPDATE.name
                                         )
                                         dao.insertAttachmentReplace(att)
-                                        FirestoreSyncManager.syncAttachment(att) 
+                                        FirestoreSyncManager.syncAttachment(att)
+                                        OccurrenceSyncScheduler.scheduleSync(context) 
                                     } 
                                 } 
                             } 
@@ -693,37 +1150,7 @@ fun OccurrencesScreen(
     }
 }
 
-private fun getOccurrenceCreationMillis(occ: OccurrenceEntity, messages: List<MessageWithAttachments>): Long {
-    if (occ.date.isNotBlank()) {
-        try {
-            val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
-            val parsed = sdf.parse(occ.date)
-            if (parsed != null) return parsed.time
-        } catch (_: Exception) {}
-        try {
-            val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-            val parsed = sdf.parse(occ.date)
-            if (parsed != null) return parsed.time
-        } catch (_: Exception) {}
-    }
-    if (occ.id > 1_000_000_000_000L) {
-        return occ.id
-    }
-    val firstMsg = messages.sortedBy { it.message.id }.firstOrNull()?.message
-    if (firstMsg != null) {
-        if (firstMsg.date.isNotBlank()) {
-            try {
-                val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
-                val parsed = sdf.parse(firstMsg.date)
-                if (parsed != null) return parsed.time
-            } catch (_: Exception) {}
-        }
-        if (firstMsg.id > 1_000_000_000_000L) {
-            return firstMsg.id
-        }
-    }
-    return System.currentTimeMillis()
-}
+
 
 @Composable
 fun OccurrencePinnedHeader(
@@ -742,11 +1169,12 @@ fun OccurrencePinnedHeader(
     val creatorUsername = occ.createdByUsername.ifBlank { messages.firstOrNull()?.message?.senderUsername ?: "" }
     val isCreator = creatorUsername.isNotBlank() && creatorUsername.equals(currentUser.username, ignoreCase = true)
 
+    val context = LocalContext.current
     val creationMillis = remember(occ.id, occ.date, messages.firstOrNull()?.message?.id) {
         getOccurrenceCreationMillis(occ, messages)
     }
     val isWithinTwoHours = (System.currentTimeMillis() - creationMillis) <= (2 * 60 * 60 * 1000L)
-    val canEditOccurrence = onEditOccurrence != null && (isAdmin || (isCreator && isWithinTwoHours))
+    val canEditOccurrence = onEditOccurrence != null && (isAdmin || currentUser.canEditOccurrences || (isCreator && isWithinTwoHours))
 
     if (showEditHeaderDialog && canEditOccurrence) {
         val firstMsgText = messages.firstOrNull()?.message?.text ?: ""
@@ -806,7 +1234,29 @@ fun OccurrencePinnedHeader(
                             }
 
                             if (occ.isUrgent) {
-                                Icon(Icons.Default.NotificationImportant, contentDescription = "Urgente", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                Surface(
+                                    color = Color.Red,
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.NotificationImportant,
+                                            contentDescription = "Urgente",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Text(
+                                            text = "URGENTE",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
                             }
                             if (occ.type == "CONSELHO") {
                                 Icon(Icons.Default.Gavel, contentDescription = "Conselho", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
@@ -815,7 +1265,7 @@ fun OccurrencePinnedHeader(
 
                         if (occ.title.isNotBlank()) {
                             Text(
-                                text = "Assunto: ${occ.title}",
+                                text = occ.title,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = if (occ.title.endsWith("(Desarquivada)")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
@@ -834,10 +1284,48 @@ fun OccurrencePinnedHeader(
                         )
                     }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            if (occ.isUrgent) {
+                                Icon(
+                                    imageVector = Icons.Default.NotificationImportant,
+                                    contentDescription = "Urgente",
+                                    tint = Color.Red,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            if (canEditOccurrence) {
+                                IconButton(
+                                    onClick = { showEditHeaderDialog = true },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Editar Ocorrência",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = onClose,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.ExpandLess,
+                                    contentDescription = "Fechar card",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
                         Surface(
                             color = when (occ.status) {
                                 "ABERTA" -> Color(0xFFE3F2FD)
@@ -860,32 +1348,6 @@ fun OccurrencePinnedHeader(
                                     "ARQUIVADA" -> Color(0xFF546E7A)
                                     else -> Color.DarkGray
                                 }
-                            )
-                        }
-
-                        if (canEditOccurrence) {
-                            IconButton(
-                                onClick = { showEditHeaderDialog = true },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Edit,
-                                    contentDescription = "Editar Ocorrência",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-
-                        IconButton(
-                            onClick = onClose,
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.ExpandLess,
-                                contentDescription = "Fechar card",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
@@ -928,6 +1390,7 @@ fun OccurrenceCard(
     isSelected: Boolean = false,
     hideHeader: Boolean = false,
     onExpand: (() -> Unit)? = null,
+    initiallyExpanded: Boolean = false,
     modifier: Modifier = Modifier,
     onLongClickCard: () -> Unit = {},
     selectedMessage: OccurrenceMessageEntity? = null,
@@ -937,10 +1400,13 @@ fun OccurrenceCard(
     onMarkAsRead: () -> Unit,
     onDeleteMessage: (Long) -> Unit,
     onEditMessage: ((Long, String) -> Unit)? = null,
-    onToggleVote: (Long, Boolean) -> Unit,
+    onToggleVote: (Long, String) -> Unit,
     onCloseVoting: (Long, String?, Double?, Int?, Double?, String?, String?) -> Unit,
     onDelete: () -> Unit,
-    onEditOccurrence: ((newApartment: String, newTitle: String, newDescription: String) -> Unit)? = null
+    canPrioritize: Boolean = false,
+    onToggleUrgent: (() -> Unit)? = null,
+    onEditOccurrence: ((newApartment: String, newTitle: String, newDescription: String) -> Unit)? = null,
+    onDefineBudget: (String, Double, Int, Double, String, String, Uri?) -> Unit = { _, _, _, _, _, _, _ -> }
 ) {
     val occ = occWithMsgs.occurrence
     val messages = occWithMsgs.messages.sortedBy { it.message.id }
@@ -958,17 +1424,19 @@ fun OccurrenceCard(
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         selectedUris.addAll(uris)
     }
+    var showBudgetOptionChoiceDialog by remember { mutableStateOf(false) }
     var showBudgetDialog by remember { mutableStateOf(false) }
+    var showZeladorBudgetDialog by remember { mutableStateOf(false) }
     var showEditHeaderDialog by remember { mutableStateOf(false) }
     var showCloseConfirm by remember { mutableStateOf(false) }
     var messageWithOptions by remember { mutableStateOf<OccurrenceMessageEntity?>(null) }
     var messageToEdit by remember { mutableStateOf<OccurrenceMessageEntity?>(null) }
-    var expanded by remember(occ.id, occ.status, occ.title) {
-        mutableStateOf(isArchived || isDesarquivada)
+    var expanded by remember(occ.id, occ.status, occ.title, isCompact, initiallyExpanded) {
+        mutableStateOf(initiallyExpanded || (if (isCompact) false else (!isArchived && isDesarquivada)))
     }
 
-    LaunchedEffect(isCompact, isArchived, isDesarquivada) {
-        if (isCompact && !isArchived && !isDesarquivada) {
+    LaunchedEffect(isCompact) {
+        if (isCompact) {
             expanded = false
         }
     }
@@ -981,9 +1449,61 @@ fun OccurrenceCard(
         getOccurrenceCreationMillis(occ, messages)
     }
     val isWithinTwoHours = (System.currentTimeMillis() - creationMillis) <= (2 * 60 * 60 * 1000L)
-    val canEditOccurrence = onEditOccurrence != null && (isAdmin || (isCreator && isWithinTwoHours))
+    val canEditOccurrence = onEditOccurrence != null && (isAdmin || currentUser.canEditOccurrences || (isCreator && isWithinTwoHours))
 
     val unreadCount = messages.count { isMessageUnreadForUser(it.message, occ, currentUser, it.reads) }
+
+    val lastMessage = messages.lastOrNull()?.message
+    val lastMsgSender = lastMessage?.senderUsername ?: ""
+    val lastMsgText = lastMessage?.text ?: ""
+
+    val canSeeLastMsg = lastMessage?.let { msg ->
+        when {
+            msg.isSindicoOnly -> currentUser.role == "Síndico" || currentUser.role == "ADMIN" || msg.senderUsername == currentUser.username
+            msg.isCouncilOnly -> currentUser.role == "Síndico" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "ADMIN" || msg.senderUsername == currentUser.username
+            msg.isBudget -> currentUser.role == "Síndico" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "ADMIN" || currentUser.role == "Zelador" || msg.senderUsername == currentUser.username
+            else -> true
+        }
+    } ?: true
+
+    val lastMsgIsVoting = lastMessage?.senderUsername == "SISTEMA" && lastMessage.text.startsWith("Votação encerrada.")
+    val canSeeVotingResult = currentUser.role == "Síndico" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "ADMIN" || currentUser.role == "Zelador"
+
+    val displayLastMsg = if (lastMessage == null) {
+        ""
+    } else if (!canSeeLastMsg) {
+        if (lastMessage.isBudget && lastMessage.isVotingClosed && lastMessage.text.contains("Orçamento Aprovado", ignoreCase = true) && currentUser.role == "Zelador") {
+            val lines = lastMessage.text.lines()
+            val fornecedor = lines.firstOrNull { it.contains("Prestador/Fornecedor:") || it.contains("Orçamento:") }?.substringAfter(":")?.trim()
+            val inicio = lines.firstOrNull { it.contains("Início:") }?.substringAfter(":")?.trim()
+            val duracao = lines.firstOrNull { it.contains("Duração:") }?.substringAfter(":")?.trim()
+            val parts = listOfNotNull(fornecedor, inicio, duracao).filter { it.isNotBlank() }
+            if (parts.isNotEmpty()) {
+                "✅ Serviço autorizado (${parts.joinToString(", ")})"
+            } else {
+                "✅ Serviço autorizado"
+            }
+        } else {
+            "Mensagem sigilosa"
+        }
+    } else if (lastMessage.isBudget && lastMessage.isVotingClosed && lastMessage.text.contains("Orçamento Aprovado", ignoreCase = true) && currentUser.role == "Zelador" && lastMessage.senderUsername == currentUser.username) {
+        "✅ Status: Orçamento Aprovado"
+    } else if (lastMsgIsVoting && !canSeeVotingResult) {
+        "Resultado da votação restrito ao Conselho Fiscal e Síndico."
+    } else if (lastMsgIsVoting && currentUser.role == "Zelador") {
+        val lines = lastMessage.text.lines()
+        val fornecedor = lines.firstOrNull { it.contains("Prestador/Fornecedor:") || it.contains("Orçamento:") }?.substringAfter(":")?.trim()
+        val inicio = lines.firstOrNull { it.contains("Início:") }?.substringAfter(":")?.trim()
+        val duracao = lines.firstOrNull { it.contains("Duração:") }?.substringAfter(":")?.trim()
+        val parts = listOfNotNull(fornecedor, inicio, duracao).filter { it.isNotBlank() }
+        if (parts.isNotEmpty()) {
+            "Votação encerrada (${parts.joinToString(", ")})"
+        } else {
+            "Votação encerrada"
+        }
+    } else {
+        lastMsgText
+    }
 
     LaunchedEffect(expanded, messages.size, unreadCount) {
         if (expanded && unreadCount > 0) {
@@ -1013,11 +1533,13 @@ fun OccurrenceCard(
                 onClick = { expanded = !expanded },
                 onLongClick = { onLongClickCard() }
             ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        border = if (occ.isUrgent) BorderStroke(1.5.dp, Color.Red) else BorderStroke(1.5.dp, Color(0xFF2196F3)),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (occ.isUrgent) 5.dp else 3.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = when {
                 isSelected -> MaterialTheme.colorScheme.primaryContainer
+                occ.isUrgent -> Color(0xFFFFF2F2)
                 isCondo -> Color(0xFFE8F4FD)
                 else -> Color(0xFFF7F7F7)
             }
@@ -1058,7 +1580,29 @@ fun OccurrenceCard(
                             }
 
                             if (occ.isUrgent) {
-                                Icon(Icons.Default.NotificationImportant, contentDescription = "Urgente", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                Surface(
+                                    color = Color.Red,
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.NotificationImportant,
+                                            contentDescription = "Urgente",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Text(
+                                            text = "URGENTE",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
                             }
                             if (occ.type == "CONSELHO") {
                                 Icon(Icons.Default.Gavel, contentDescription = "Conselho", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
@@ -1067,7 +1611,7 @@ fun OccurrenceCard(
 
                         if (occ.title.isNotBlank()) {
                             Text(
-                                text = "Assunto: ${occ.title}",
+                                text = occ.title,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = if (occ.title.endsWith("(Desarquivada)")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
@@ -1086,10 +1630,49 @@ fun OccurrenceCard(
                         )
                     }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            if (canPrioritize && onToggleUrgent != null) {
+                                IconButton(
+                                    onClick = { onToggleUrgent() },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.NotificationImportant,
+                                        contentDescription = if (occ.isUrgent) "Remover Urgência" else "Priorizar Chamada",
+                                        tint = if (occ.isUrgent) Color.Red else Color.Gray,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            } else if (occ.isUrgent) {
+                                Icon(
+                                    imageVector = Icons.Default.NotificationImportant,
+                                    contentDescription = "Urgente",
+                                    tint = Color.Red,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            if (canEditOccurrence) {
+                                IconButton(
+                                    onClick = { showEditHeaderDialog = true },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Editar Ocorrência",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+
                         Surface(
                             color = when (occ.status) {
                                 "ABERTA" -> Color(0xFFE3F2FD)
@@ -1113,20 +1696,6 @@ fun OccurrenceCard(
                                     else -> Color.DarkGray
                                 }
                             )
-                        }
-
-                        if (canEditOccurrence) {
-                            IconButton(
-                                onClick = { showEditHeaderDialog = true },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Edit,
-                                    contentDescription = "Editar Ocorrência",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
                         }
                     }
                 }
@@ -1171,6 +1740,39 @@ fun OccurrenceCard(
                 )
             }
 
+            if (!expanded && displayLastMsg.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Chat,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = if (lastMessage != null && lastMessage.senderUsername.isNotBlank() && lastMessage.senderUsername != "SISTEMA") {
+                                "${lastMessage.senderUsername}: $displayLastMsg"
+                            } else {
+                                displayLastMsg
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
             if (expanded) {
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -1183,7 +1785,7 @@ fun OccurrenceCard(
                         val canSeeSecret = when {
                             msg.isSindicoOnly -> currentUser.role == "Síndico" || currentUser.role == "ADMIN" || msg.senderUsername == currentUser.username
                             msg.isCouncilOnly -> currentUser.role == "Síndico" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "ADMIN" || msg.senderUsername == currentUser.username
-                            msg.isBudget -> currentUser.role == "Síndico" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "ADMIN" || msg.senderUsername == currentUser.username
+                            msg.isBudget -> currentUser.role == "Síndico" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "ADMIN" || currentUser.role == "Zelador" || msg.senderUsername == currentUser.username
                             else -> true
                         }
 
@@ -1191,16 +1793,35 @@ fun OccurrenceCard(
                         val canSeeVotingResult = currentUser.role == "Síndico" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "ADMIN" || currentUser.role == "Zelador"
 
                         val displayMsg = if (!canSeeSecret) {
-                            "Mensagem sigilosa"
+                            if (msg.isBudget && msg.isVotingClosed && msg.text.contains("Orçamento Aprovado", ignoreCase = true) && currentUser.role == "Zelador") {
+                                val lines = msg.text.lines()
+                                val fornecedor = lines.firstOrNull { it.contains("Prestador/Fornecedor:") || it.contains("Orçamento:") }
+                                val inicio = lines.firstOrNull { it.contains("Início:") }
+                                val duracao = lines.firstOrNull { it.contains("Duração:") }
+                                val filtered = listOfNotNull("✅ Serviço autorizado", "", fornecedor, inicio, duracao)
+                                filtered.joinToString("\n")
+                            } else {
+                                "Mensagem sigilosa"
+                            }
+                        } else if (msg.isBudget && msg.isVotingClosed && msg.text.contains("Orçamento Aprovado", ignoreCase = true) && currentUser.role == "Zelador" && msg.senderUsername == currentUser.username) {
+                            val lines = msg.text.lines()
+                            val status = lines.firstOrNull { it.contains("Status:") } ?: "✅ Status: Orçamento Aprovado"
+                            val fornecedor = lines.firstOrNull { it.contains("Prestador/Fornecedor:") || it.contains("Orçamento:") }
+                            val valor = lines.firstOrNull { it.contains("Valor Total:") }
+                            val inicio = lines.firstOrNull { it.contains("Início:") }
+                            val duracao = lines.firstOrNull { it.contains("Duração:") }
+                            val filtered = listOfNotNull(status, "", fornecedor, valor, inicio, duracao)
+                            filtered.joinToString("\n")
                         } else if (isVotingResult && !canSeeVotingResult) {
                             "Resultado da votação restrito ao Conselho Fiscal e Síndico."
                         } else if (isVotingResult && currentUser.role == "Zelador") {
                             val lines = msg.text.lines()
                             val header = lines.firstOrNull { it.contains("Votação encerrada.") } ?: "Votação encerrada."
-                            val orcamento = lines.firstOrNull { it.contains("Orçamento Aprovado:") }
+                            val status = lines.firstOrNull { it.contains("Orçamento Aprovado", ignoreCase = true) }
+                            val fornecedor = lines.firstOrNull { it.contains("Prestador/Fornecedor:") || it.contains("Orçamento:") }
                             val inicio = lines.firstOrNull { it.contains("Início:") }
                             val duracao = lines.firstOrNull { it.contains("Duração:") }
-                            val filtered = listOfNotNull(orcamento, inicio, duracao)
+                            val filtered = listOfNotNull(status, fornecedor, inicio, duracao)
                             if (filtered.isNotEmpty()) {
                                 "$header\n\n${filtered.joinToString("\n")}"
                             } else {
@@ -1217,6 +1838,8 @@ fun OccurrenceCard(
                             else -> userRoleMap[msg.senderUsername.lowercase()] ?: ""
                         }
 
+                        val displayAttachments = if (!canSeeSecret) emptyList() else msgWithAtts.attachments
+
                         ChatBubble(
                             text = displayMsg,
                             author = msg.senderUsername,
@@ -1229,7 +1852,8 @@ fun OccurrenceCard(
                             isVotingClosed = msg.isVotingClosed,
                             isBudget = msg.isBudget,
                             isEdited = msg.isEdited,
-                            attachments = msgWithAtts.attachments,
+                            attachments = displayAttachments,
+                            reads = msgWithAtts.reads,
                             isSelected = selectedMessage?.id == msg.id || messageWithOptions?.id == msg.id,
                             onLongClick = {
                                 messageWithOptions = msg
@@ -1239,7 +1863,8 @@ fun OccurrenceCard(
                             onToggleVote = onToggleVote,
                             onCloseVoting = { name, total, count, instValue, start, dur ->
                                 onCloseVoting(msg.id, name, total, count, instValue, start, dur)
-                            }
+                            },
+                            userRoleMap = userRoleMap
                         )
                     }
                 }
@@ -1363,7 +1988,33 @@ fun OccurrenceCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        if (currentUser.role == "Síndico" || currentUser.role == "ADMIN" || currentUser.role == "Conselheiro Fiscal") {
+                        if (canPrioritize && onToggleUrgent != null && occ.status != "ARQUIVADA") {
+                            if (occ.isUrgent) {
+                                OutlinedButton(
+                                    onClick = { onToggleUrgent() },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
+                                    border = BorderStroke(1.dp, Color.Red),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Icon(Icons.Default.NotificationImportant, null, Modifier.size(14.dp), tint = Color.Red)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Remover Urgência", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Button(
+                                    onClick = { onToggleUrgent() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red, contentColor = Color.White),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Icon(Icons.Default.NotificationImportant, null, Modifier.size(14.dp), tint = Color.White)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Priorizar", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        if (currentUser.role == "Síndico" || currentUser.role == "ADMIN" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "Zelador") {
                             if (occ.status == "ARQUIVADA") {
                                 TextButton(onClick = { onUpdateStatus("DESARQUIVAR") }) {
                                     Icon(Icons.Default.Unarchive, null, Modifier.size(18.dp))
@@ -1371,8 +2022,10 @@ fun OccurrenceCard(
                                     Text("Desarquivar")
                                 }
                             } else if (occ.status != "FINALIZADA") {
-                                if (currentUser.role == "Síndico" || currentUser.role == "ADMIN") {
-                                    ProfessionalBudgetActionButton(onClick = { showBudgetDialog = true })
+                                if (currentUser.role == "Síndico" || currentUser.role == "ADMIN" || currentUser.role == "Conselheiro Fiscal" || currentUser.role == "Zelador") {
+                                    ProfessionalBudgetActionButton(onClick = {
+                                        showBudgetOptionChoiceDialog = true
+                                    })
                                 }
                             } else {
                                 TextButton(onClick = { onUpdateStatus("ABERTA") }) {
@@ -1405,12 +2058,33 @@ fun OccurrenceCard(
 
 
 
+    if (showBudgetOptionChoiceDialog) {
+        BudgetOptionChoiceDialog(
+            onDismiss = { showBudgetOptionChoiceDialog = false },
+            onSelectSingle = { showZeladorBudgetDialog = true },
+            onSelectMultiple = { showBudgetDialog = true }
+        )
+    }
+
     if (showBudgetDialog) {
         BudgetReplyDialog(
             onDismiss = { showBudgetDialog = false },
             onConfirm = { text, uris ->
                 onReply(text, true, false, uris, true)
                 showBudgetDialog = false
+            }
+        )
+    }
+
+    if (showZeladorBudgetDialog) {
+        CloseVotingDialog(
+            attachments = emptyList<AttachmentWithVotes>(),
+            isNameReadOnly = false,
+            showDocumentPicker = true,
+            onDismiss = { showZeladorBudgetDialog = false },
+            onConfirm = { name, total, count, instValue, start, dur, attachedUri ->
+                showZeladorBudgetDialog = false
+                onDefineBudget(name, total, count, instValue, start, dur, attachedUri)
             }
         )
     }
@@ -1604,6 +2278,7 @@ fun OccurrenceCard(
 fun RegisterOccurrenceDialog(
     currentUser: UserEntity, 
     dao: AppDao, 
+    initialDestination: String? = null,
     onDismiss: () -> Unit, 
     onConfirm: (String, String, String, Boolean, List<Uri>, String) -> Unit
 ) {
@@ -1612,17 +2287,20 @@ fun RegisterOccurrenceDialog(
     var apt by remember { mutableStateOf("") }
     var isCondo by remember { mutableStateOf(true) }
     var isUrgent by remember { mutableStateOf(false) }
+    var showUrgentConfirmDialog by remember { mutableStateOf(false) }
     
     var floor by remember { mutableStateOf("T") }
     var valueStr by remember { mutableStateOf("") }
     var isInstallment by remember { mutableStateOf(false) }
     var installmentsCountStr by remember { mutableStateOf("1") }
 
-    val defaultDest = when (currentUser.role) {
-        "Conselheiro Fiscal" -> "CONSELHO"
+    val isSuperAdmin = isSuperAdminUser(currentUser)
+
+    val defaultDest = initialDestination ?: when {
+        currentUser.role == "Conselheiro Fiscal" -> "CONSELHO"
         else -> "GERAL"
     }
-    var destination by remember { mutableStateOf(defaultDest) } 
+    var destination by remember { mutableStateOf(defaultDest) }  
     
     val selectedUris = remember { mutableStateListOf<Uri>() }
     val context = LocalContext.current
@@ -1681,7 +2359,7 @@ fun RegisterOccurrenceDialog(
 
                 HorizontalDivider(thickness = 0.5.dp)
 
-                if (currentUser.role != "Porteiro" && currentUser.role != "Zelador") {
+                if (currentUser.role != "Porteiro" && currentUser.role != "Zelador" || isSuperAdmin) {
                     Column {
                         Text("Encaminhar para:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -1701,6 +2379,16 @@ fun RegisterOccurrenceDialog(
                                 leadingIcon = if (destination == "CONSELHO") { { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) } } else null,
                                 modifier = Modifier.weight(1f)
                             )
+                            if (isSuperAdmin) {
+                                Spacer(Modifier.width(8.dp))
+                                FilterChip(
+                                    selected = destination == "ADMIN",
+                                    onClick = { destination = "ADMIN" },
+                                    label = { Text("Admin", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall) },
+                                    leadingIcon = if (destination == "ADMIN") { { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) } } else null,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }
@@ -2129,15 +2817,59 @@ fun RegisterOccurrenceDialog(
                 Surface(
                     color = if (isUrgent) Color.Red.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().clickable { isUrgent = !isUrgent }
-                ) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = isUrgent, onCheckedChange = { isUrgent = it })
-                        Column {
-                            Text("Urgente", fontWeight = FontWeight.Bold, color = if (isUrgent) Color.Red else Color.Unspecified)
-                            Text("Priorizar esta ocorrência", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        if (!isUrgent) {
+                            showUrgentConfirmDialog = true
+                        } else {
+                            isUrgent = false
                         }
                     }
+                ) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = isUrgent,
+                            onCheckedChange = { checked ->
+                                if (checked) {
+                                    showUrgentConfirmDialog = true
+                                } else {
+                                    isUrgent = false
+                                }
+                            }
+                        )
+                        Column {
+                            Text("Urgente", fontWeight = FontWeight.Bold, color = if (isUrgent) Color.Red else Color.Unspecified)
+                            Text("Priorizar esta ocorrência (requer confirmação)", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        }
+                    }
+                }
+
+                if (showUrgentConfirmDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showUrgentConfirmDialog = false },
+                        icon = {
+                            Icon(Icons.Default.NotificationImportant, contentDescription = null, tint = Color.Red)
+                        },
+                        title = { Text("Confirmar Marcação de Urgência") },
+                        text = {
+                            Text("Deseja destacar esta ocorrência como URGENTE ao cadastrar? Chamadas urgentes têm prioridade máxima.")
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    isUrgent = true
+                                    showUrgentConfirmDialog = false
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                            ) {
+                                Text("Confirmar Urgência")
+                            }
+                        },
+                        dismissButton = {
+                            OutlinedButton(onClick = { showUrgentConfirmDialog = false }) {
+                                Text("Cancelar")
+                            }
+                        }
+                    )
                 }
 
                 Column {

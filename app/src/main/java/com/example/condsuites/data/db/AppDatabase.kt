@@ -45,7 +45,7 @@ import com.example.condsuites.data.model.UserEntity
         NotificationLogEntity::class, UnitEntity::class, OvertimeEntity::class, FinanceTransactionEntity::class,
         AuditLogEntity::class, OccurrenceMessageReadEntity::class
     ],
-    version = 46,
+    version = 50,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

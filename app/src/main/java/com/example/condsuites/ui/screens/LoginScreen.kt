@@ -42,6 +42,27 @@ fun LoginScreen(dao: AppDao, onLoginSuccess: (UserEntity) -> Unit) {
     val context = LocalContext.current
     
     val rememberedUsers by UserPreferences.getRememberedUsernames(context).collectAsState(initial = emptySet())
+    var autoFilled by remember { mutableStateOf(false) }
+
+    LaunchedEffect(rememberedUsers) {
+        if (!autoFilled && rememberedUsers.isNotEmpty() && username.isEmpty()) {
+            val lastUser = UserPreferences.getLastRememberedUsername(context) ?: rememberedUsers.first()
+            val targetUser = if (rememberedUsers.contains(lastUser)) lastUser else rememberedUsers.first()
+            username = targetUser
+            val savedPass = UserPreferences.getPassword(context, targetUser)
+            if (!savedPass.isNullOrEmpty()) {
+                password = savedPass
+            } else {
+                val dbUser = withContext(Dispatchers.IO) {
+                    dao.getUserByUsername(targetUser)
+                }
+                if (dbUser != null) {
+                    password = dbUser.password
+                }
+            }
+            autoFilled = true
+        }
+    }
 
     Box(
         Modifier
@@ -76,7 +97,22 @@ fun LoginScreen(dao: AppDao, onLoginSuccess: (UserEntity) -> Unit) {
                         items(rememberedUsers.toList()) { user ->
                             InputChip(
                                 selected = username == user,
-                                onClick = { username = user },
+                                onClick = {
+                                    username = user
+                                    scope.launch {
+                                        val savedPass = UserPreferences.getPassword(context, user)
+                                        if (!savedPass.isNullOrEmpty()) {
+                                            password = savedPass
+                                        } else {
+                                            val dbUser = withContext(Dispatchers.IO) {
+                                                dao.getUserByUsername(user)
+                                            }
+                                            if (dbUser != null) {
+                                                password = dbUser.password
+                                            }
+                                        }
+                                    }
+                                },
                                 label = { Text(user) },
                                 trailingIcon = {
                                     Icon(
@@ -142,6 +178,8 @@ fun LoginScreen(dao: AppDao, onLoginSuccess: (UserEntity) -> Unit) {
                                     if (rememberUser) {
                                         try {
                                             UserPreferences.saveUsername(context, username)
+                                            UserPreferences.savePassword(context, username, password)
+                                            UserPreferences.saveLastRememberedUsername(context, username)
                                         } catch (_: Exception) {}
                                     }
                                     AuditLogger.log(
@@ -168,7 +206,7 @@ fun LoginScreen(dao: AppDao, onLoginSuccess: (UserEntity) -> Unit) {
                 }
 
                 Text(
-                    text = "v2.1.3",
+                    text = "v2.2.1",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )

@@ -110,10 +110,16 @@ fun TransactionGroupCard(
     val isGroup = group.size > 1
     val scope = rememberCoroutineScope()
     var showOccurrenceDialog by remember { mutableStateOf(false) }
+    var transactionToDelete by remember { mutableStateOf<FinanceTransactionEntity?>(null) }
 
     val totalAmount = group.sumOf { it.amount }
     val paidAmount = group.filter { it.isPaid }.sumOf { it.amount }
     val isAllPaid = group.all { it.isPaid }
+
+    val canDeleteFirst = when (firstTx.type) {
+        "PAYABLE" -> currentUser.role == "ADMIN"
+        else -> currentUser.role == "ADMIN" || currentUser.role == "Síndico"
+    }
 
     Card(
         modifier = Modifier
@@ -188,14 +194,9 @@ fun TransactionGroupCard(
                             )
                         }
 
-                        if (currentUser.role == "ADMIN" || currentUser.role == "Síndico") {
+                        if (canDeleteFirst) {
                             IconButton(
-                                onClick = {
-                                    scope.launch {
-                                        dao.deleteTransaction(firstTx.id)
-                                        FirestoreSyncManager.syncTransaction(firstTx, isDelete = true)
-                                    }
-                                },
+                                onClick = { transactionToDelete = firstTx },
                                 modifier = Modifier.size(32.dp)
                             ) {
                                 Icon(Icons.Default.Delete, contentDescription = "Excluir", tint = Color.Red, modifier = Modifier.size(18.dp))
@@ -240,6 +241,11 @@ fun TransactionGroupCard(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 group.sortedBy { it.installmentNumber }.forEach { tx ->
+                    val canDeleteTx = when (tx.type) {
+                        "PAYABLE" -> currentUser.role == "ADMIN"
+                        else -> currentUser.role == "ADMIN" || currentUser.role == "Síndico"
+                    }
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -279,14 +285,9 @@ fun TransactionGroupCard(
                                 Icon(Icons.Default.Check, contentDescription = "Pago", tint = Color(0xFF388E3C), modifier = Modifier.size(20.dp))
                             }
 
-                            if (currentUser.role == "ADMIN" || currentUser.role == "Síndico") {
+                            if (canDeleteTx) {
                                 IconButton(
-                                    onClick = {
-                                        scope.launch {
-                                            dao.deleteTransaction(tx.id)
-                                            FirestoreSyncManager.syncTransaction(tx, isDelete = true)
-                                        }
-                                    },
+                                    onClick = { transactionToDelete = tx },
                                     modifier = Modifier.size(28.dp)
                                 ) {
                                     Icon(Icons.Default.Delete, contentDescription = "Excluir", tint = Color.Red, modifier = Modifier.size(16.dp))
@@ -297,6 +298,34 @@ fun TransactionGroupCard(
                 }
             }
         }
+    }
+
+    if (transactionToDelete != null) {
+        val txToDelete = transactionToDelete!!
+        AlertDialog(
+            onDismissRequest = { transactionToDelete = null },
+            title = { Text("Confirmar Exclusão") },
+            text = { Text("Deseja realmente excluir o lançamento \"${txToDelete.title}\"? Esta ação não pode ser desfeita.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        transactionToDelete = null
+                        scope.launch {
+                            dao.deleteTransaction(txToDelete.id)
+                            FirestoreSyncManager.syncTransaction(txToDelete, isDelete = true)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Excluir")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { transactionToDelete = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 
     val relId = firstTx.relatedId

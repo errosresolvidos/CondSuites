@@ -1,0 +1,28 @@
+package com.example.condsuites.service.sync
+
+import android.content.Context
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+
+object OccurrenceSyncScheduler {
+    private const val SYNC_WORK_NAME = "occurrence_sync_work"
+
+    fun scheduleSync(context: Context) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val syncRequest = OneTimeWorkRequestBuilder<OccurrenceSyncWorker>()
+            .setConstraints(constraints)
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            SYNC_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            syncRequest
+        )
+    }
+}

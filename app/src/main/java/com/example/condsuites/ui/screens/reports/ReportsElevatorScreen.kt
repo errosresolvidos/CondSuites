@@ -632,6 +632,7 @@ fun ElevatorOccurrenceCard(
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onToggleExpand() },
         shape = RoundedCornerShape(12.dp),
+        border = if (item.occurrence.isUrgent) BorderStroke(1.5.dp, Color.Red) else BorderStroke(1.5.dp, Color(0xFF2196F3)),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
     ) {
         Column(Modifier.padding(14.dp)) {
