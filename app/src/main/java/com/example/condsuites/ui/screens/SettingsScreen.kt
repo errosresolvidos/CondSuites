@@ -2127,6 +2127,85 @@ fun UserNotificationSettingsSection(currentUser: UserEntity) {
                     }
                 )
             }
+
+            if (currentUser.role == "Síndico" || currentUser.role == "ADMIN") {
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+
+                var allowOffHours by remember {
+                    mutableStateOf(UserPreferences.isAllowUrgentAlertsOffHours(context))
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Alertas de Ocorrências Urgentes",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Obrigatório para o Síndico (Sempre ativo para ocorrências pendentes).",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Switch(
+                                checked = true,
+                                enabled = false,
+                                onCheckedChange = {}
+                            )
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        Spacer(Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Permitir Fora do Horário e Finais de Semana",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (allowOffHours) "Alertas permitidos 24/7 (incluindo fins de semana)." else "Alertas restritos a Segunda a Sexta, das 09:00 às 18:00.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
+                            Switch(
+                                checked = allowOffHours,
+                                enabled = true,
+                                onCheckedChange = { newValue ->
+                                    allowOffHours = newValue
+                                    UserPreferences.setAllowUrgentAlertsOffHours(context, newValue)
+                                    if (newValue) {
+                                        com.example.condsuites.service.sync.UrgentOccurrenceScheduler.triggerImmediateCheck(context)
+                                    }
+                                    Toast.makeText(
+                                        context,
+                                        if (newValue) "Alertas fora do horário comercial ativados (24/7)." else "Alertas restritos ao horário comercial (09:00 às 18:00).",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -2204,8 +2283,8 @@ fun NotificationSettingsSection(dao: AppDao, currentUser: UserEntity, scope: Cor
 
             Spacer(Modifier.height(12.dp))
 
-            var urgentAlertsEnabled by remember {
-                mutableStateOf(UserPreferences.isUrgentAlertsEnabled(context))
+            var allowOffHours by remember {
+                mutableStateOf(UserPreferences.isAllowUrgentAlertsOffHours(context))
             }
 
             Surface(
@@ -2213,43 +2292,69 @@ fun NotificationSettingsSection(dao: AppDao, currentUser: UserEntity, scope: Cor
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Alertas de Ocorrências Urgentes (Síndico)",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = if (urgentAlertsEnabled) "Alertas em segundo plano ativos (mesmo com o app fechado da memória)." else "Alertas periódicos de urgência desativados.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (urgentAlertsEnabled) Color.DarkGray else Color.Red
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Alertas de Ocorrências Urgentes (Síndico)",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Obrigatório para o Síndico (Sempre ativo para ocorrências pendentes).",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Switch(
+                            checked = true,
+                            enabled = false,
+                            onCheckedChange = {}
                         )
                     }
-                    Switch(
-                        checked = urgentAlertsEnabled,
-                        onCheckedChange = { newValue ->
-                            urgentAlertsEnabled = newValue
-                            UserPreferences.setUrgentAlertsEnabled(context, newValue)
-                            if (newValue) {
-                                com.example.condsuites.service.sync.UrgentOccurrenceScheduler.scheduleUrgentAlerts(context)
-                                com.example.condsuites.service.sync.UrgentOccurrenceScheduler.triggerImmediateCheck(context)
-                            } else {
-                                com.example.condsuites.service.sync.UrgentOccurrenceScheduler.cancelUrgentAlerts(context)
-                            }
-                            Toast.makeText(
-                                context,
-                                if (newValue) "Alertas de ocorrências urgentes ativados." else "Alertas de ocorrências urgentes desativados.",
-                                Toast.LENGTH_SHORT
-                            ).show()
+
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    Spacer(Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Permitir Alertas Fora do Horário Comercial e Finais de Semana",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (allowOffHours) "Alertas permitidos 24 horas por dia (incluindo finais de semana)." else "Alertas restritos a Segunda a Sexta, das 09:00 às 18:00.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
                         }
-                    )
+                        Switch(
+                            checked = allowOffHours,
+                            enabled = true,
+                            onCheckedChange = { newValue ->
+                                allowOffHours = newValue
+                                UserPreferences.setAllowUrgentAlertsOffHours(context, newValue)
+                                if (newValue) {
+                                    com.example.condsuites.service.sync.UrgentOccurrenceScheduler.triggerImmediateCheck(context)
+                                }
+                                Toast.makeText(
+                                    context,
+                                    if (newValue) "Alertas fora do horário comercial ativados (24/7)." else "Alertas restritos ao horário comercial (09:00 às 18:00).",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                    }
                 }
             }
 

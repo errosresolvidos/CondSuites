@@ -15,7 +15,8 @@ class UrgentOccurrenceWorker(
     override suspend fun doWork(): Result {
         try {
             if (!UserPreferences.isGlobalNotificationsEnabled(applicationContext) ||
-                !UserPreferences.isUrgentAlertsEnabled(applicationContext)
+                !UserPreferences.isUrgentAlertsEnabled(applicationContext) ||
+                !UrgentOccurrenceScheduler.isAlertAllowedNow(applicationContext)
             ) {
                 return Result.success()
             }

@@ -56,7 +56,10 @@ object NotificationUtils {
         topUrgentTitle: String,
         occurrenceId: Long?
     ) {
-        if (!UserPreferences.isGlobalNotificationsEnabled(context) || !UserPreferences.isUrgentAlertsEnabled(context)) {
+        if (!UserPreferences.isGlobalNotificationsEnabled(context) ||
+            !UserPreferences.isUrgentAlertsEnabled(context) ||
+            !com.example.condsuites.service.sync.UrgentOccurrenceScheduler.isAlertAllowedNow(context)
+        ) {
             return
         }
 

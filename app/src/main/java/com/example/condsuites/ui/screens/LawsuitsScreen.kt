@@ -95,10 +95,14 @@ fun LawsuitsManagementScreen(lawsuits: List<LawsuitWithProgress>, agreements: Li
                     SwipeToDeleteContainer(item, onDelete = {
                         if (item.lawsuit.isFinished) lawsuitForDelete = item.lawsuit
                         else {
+                            com.example.condsuites.service.NotificationUtils.recordLocalAction(item.lawsuit.id, "LAWSUIT")
                             scope.launch {
                                 dao.deleteLawsuit(item.lawsuit.id)
+                                FirestoreSyncManager.syncLawsuit(item.lawsuit, isDelete = true)
                                 agreements.find { it.agreement.apartment == item.lawsuit.apartment }?.let {
-                                    dao.updateAgreement(it.agreement.copy(isLawsuit = false))
+                                    val updated = it.agreement.copy(isLawsuit = false)
+                                    dao.updateAgreement(updated)
+                                    FirestoreSyncManager.syncAgreement(updated)
                                 }
                             }
                         }
@@ -139,17 +143,26 @@ fun LawsuitsManagementScreen(lawsuits: List<LawsuitWithProgress>, agreements: Li
         }
         FloatingActionButton(onClick = { showAddDialog = true }, Modifier.align(Alignment.BottomEnd).padding(24.dp)) { Icon(Icons.Filled.Add, null) }
         
-        if (showAddDialog || lawsuitToEdit != null) RegisterLawsuitDialog(lawsuitToEdit, dao, { showAddDialog = false; lawsuitToEdit = null }, { lawsuit -> scope.launch { dao.insertLawsuit(lawsuit) }; showAddDialog = false; lawsuitToEdit = null })
+        if (showAddDialog || lawsuitToEdit != null) RegisterLawsuitDialog(lawsuitToEdit, dao, { showAddDialog = false; lawsuitToEdit = null }, { lawsuit -> 
+            com.example.condsuites.service.NotificationUtils.recordLocalAction(lawsuit.id, "LAWSUIT")
+            scope.launch { 
+                dao.insertLawsuit(lawsuit)
+                FirestoreSyncManager.syncLawsuit(lawsuit)
+            }
+            showAddDialog = false; lawsuitToEdit = null 
+        })
         
         if (lawsuitForSuccess != null) LawsuitSuccessDialog(lawsuitForSuccess!!, { lawsuitForSuccess = null }, { 
             val updated = it.copy(isFinished = true)
+            com.example.condsuites.service.NotificationUtils.recordLocalAction(updated.id, "LAWSUIT")
             scope.launch { 
                 dao.updateLawsuit(updated)
+                FirestoreSyncManager.syncLawsuit(updated)
                 dao.insertHistory(com.example.condsuites.data.model.DelinquencyHistoryEntity(
                     apartment = updated.apartment,
                     ownerName = updated.ownerName,
                     eventType = "Processo",
-                    description = "Processo",
+                    description = "Processo finalizado com êxito. Valor recuperado: R$ ${formatCurrency(updated.successValue ?: 0.0)}",
                     date = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date()),
                     value = updated.successValue ?: 0.0
                 ))
@@ -333,8 +346,8 @@ fun LawsuitCard(
             }
 
             Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), Arrangement.End) {
-                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(36.dp)) { Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, "Andamentos", tint = MaterialTheme.colorScheme.primary) }
+            Row(Modifier.fillMaxWidth(), Arrangement.End, Alignment.CenterVertically) {
+                TextButton(onClick = { expanded = !expanded }) { Text("Andamento") }
                 if (!isFinished) {
                     IconButton(onSuccess, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Stars, "Êxito", tint = Color(0xFFFFC107), modifier = Modifier.size(24.dp)) }
                 }

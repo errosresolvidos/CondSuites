@@ -17,6 +17,7 @@ object UserPreferences {
     private const val KEY_NOTIF_ADMIN_SAMUEL = "notifications_enabled_admin_samuel"
     private const val KEY_GLOBAL_NOTIFICATIONS_ENABLED = "global_notifications_enabled"
     private const val KEY_URGENT_ALERTS_ENABLED = "urgent_alerts_enabled"
+    private const val KEY_ALLOW_URGENT_ALERTS_OFF_HOURS = "allow_urgent_alerts_off_hours"
 
     fun setGlobalNotificationsEnabled(context: Context, enabled: Boolean) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -30,12 +31,21 @@ object UserPreferences {
 
     fun setUrgentAlertsEnabled(context: Context, enabled: Boolean) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putBoolean(KEY_URGENT_ALERTS_ENABLED, enabled).apply()
+        prefs.edit().putBoolean(KEY_URGENT_ALERTS_ENABLED, true).apply()
     }
 
     fun isUrgentAlertsEnabled(context: Context): Boolean {
+        return true
+    }
+
+    fun setAllowUrgentAlertsOffHours(context: Context, allow: Boolean) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getBoolean(KEY_URGENT_ALERTS_ENABLED, true)
+        prefs.edit().putBoolean(KEY_ALLOW_URGENT_ALERTS_OFF_HOURS, allow).apply()
+    }
+
+    fun isAllowUrgentAlertsOffHours(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_ALLOW_URGENT_ALERTS_OFF_HOURS, false)
     }
 
     fun saveCurrentSessionUser(context: Context, username: String) {

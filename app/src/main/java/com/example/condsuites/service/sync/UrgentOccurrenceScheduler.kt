@@ -11,12 +11,34 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.example.condsuites.data.preferences.UserPreferences
 import java.util.concurrent.TimeUnit
 
 object UrgentOccurrenceScheduler {
     private const val PERIODIC_WORK_NAME = "urgent_occurrence_periodic_work"
     private const val ALARM_REQUEST_CODE = 99882
     const val INTERVAL_MILLIS = 15 * 60 * 1000L // 15 minutos
+
+    fun isWithinAlertAllowedTimeWindow(): Boolean {
+        val calendar = java.util.Calendar.getInstance()
+        val dayOfWeek = calendar.get(java.util.Calendar.DAY_OF_WEEK)
+        if (dayOfWeek == java.util.Calendar.SATURDAY || dayOfWeek == java.util.Calendar.SUNDAY) {
+            return false
+        }
+        val hour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
+        val minute = calendar.get(java.util.Calendar.MINUTE)
+        val currentMinutes = hour * 60 + minute
+        val startMinutes = 9 * 60 // 09:00
+        val endMinutes = 18 * 60 // 18:00
+        return currentMinutes in startMinutes..endMinutes
+    }
+
+    fun isAlertAllowedNow(context: Context): Boolean {
+        if (UserPreferences.isAllowUrgentAlertsOffHours(context)) {
+            return true
+        }
+        return isWithinAlertAllowedTimeWindow()
+    }
 
     fun scheduleUrgentAlerts(context: Context) {
         // 1. Agendar via WorkManager

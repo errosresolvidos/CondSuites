@@ -16,7 +16,8 @@ class UrgentOccurrenceAlarmReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (UserPreferences.isGlobalNotificationsEnabled(context) &&
-                    UserPreferences.isUrgentAlertsEnabled(context)
+                    UserPreferences.isUrgentAlertsEnabled(context) &&
+                    UrgentOccurrenceScheduler.isAlertAllowedNow(context)
                 ) {
                     val db = AppDatabase.getDatabase(context)
                     val dao = db.appDao()

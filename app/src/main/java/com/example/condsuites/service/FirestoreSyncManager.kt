@@ -11,6 +11,7 @@ import com.example.condsuites.data.model.DelinquentEntity
 import com.example.condsuites.data.model.DelinquentProgressEntity
 import com.example.condsuites.data.model.DelinquencyHistoryEntity
 import com.example.condsuites.data.model.FinanceTransactionEntity
+import com.example.condsuites.data.model.InstallmentEntity
 import com.example.condsuites.data.model.LawsuitEntity
 import com.example.condsuites.data.model.LawsuitProgressEntity
 import com.example.condsuites.data.model.NotificationLogEntity
@@ -49,6 +50,13 @@ object FirestoreSyncManager {
         val currentUsername = UserPreferences.getCurrentSessionUser(context)
         if (currentUsername.isBlank()) return true
         return UserPreferences.isNotificationsEnabledForUser(context, currentUsername)
+    }
+
+    private suspend fun canCouncilOrSindicoSee(context: Context, dao: AppDao): Boolean {
+        val currentUsername = UserPreferences.getCurrentSessionUser(context)
+        if (currentUsername.isBlank()) return true
+        val user = dao.getUserByUsername(currentUsername) ?: return true
+        return user.role in listOf("ADMIN", "Síndico", "Conselheiro Fiscal")
     }
 
     suspend fun touchParentOccurrence(dao: AppDao, occurrenceId: Long) {
@@ -168,6 +176,25 @@ object FirestoreSyncManager {
         } catch (e: Exception) {
             android.util.Log.e("FIRESTORE_SYNC", "Error in syncAgreement: ${e.message}")
         }
+    }
+
+    fun syncInstallment(inst: InstallmentEntity, isDelete: Boolean = false) {
+        try {
+            val db = firestore ?: return
+            val docRef = db.collection("installments").document(inst.id.toString())
+            val task = if (isDelete) docRef.delete() else docRef.set(inst)
+            task.addOnSuccessListener {
+                android.util.Log.d("FIRESTORE_SYNC", "Successfully synced installment ${inst.id}")
+            }.addOnFailureListener { e ->
+                android.util.Log.e("FIRESTORE_SYNC", "Failed to sync installment ${inst.id}: ${e.message}", e)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FIRESTORE_SYNC", "Error in syncInstallment: ${e.message}")
+        }
+    }
+
+    fun syncInstallments(insts: List<InstallmentEntity>, isDelete: Boolean = false) {
+        insts.forEach { syncInstallment(it, isDelete) }
     }
 
     fun syncDelinquent(del: DelinquentEntity, isDelete: Boolean = false) {
@@ -623,6 +650,12 @@ object FirestoreSyncManager {
                 } catch (_: Exception) {}
 
                 try {
+                    val snap = com.google.android.gms.tasks.Tasks.await(db.collection("installments").get(), 10, TimeUnit.SECONDS)
+                    val insts = snap.documents.mapNotNull { it.toObject(InstallmentEntity::class.java) }
+                    if (insts.isNotEmpty()) dao.insertInstallments(insts)
+                } catch (_: Exception) {}
+
+                try {
                     val snap = com.google.android.gms.tasks.Tasks.await(db.collection("delinquents").get(), 10, TimeUnit.SECONDS)
                     for (doc in snap.documents) {
                         val item = doc.toObject(DelinquentEntity::class.java)
@@ -788,6 +821,13 @@ object FirestoreSyncManager {
 
             val isFirstOccurrencePass = java.util.concurrent.atomic.AtomicBoolean(true)
             val isFirstMessagePass = java.util.concurrent.atomic.AtomicBoolean(true)
+            val isFirstAgreementPass = java.util.concurrent.atomic.AtomicBoolean(true)
+            val isFirstInstallmentPass = java.util.concurrent.atomic.AtomicBoolean(true)
+            val isFirstLawsuitPass = java.util.concurrent.atomic.AtomicBoolean(true)
+            val isFirstAgreementProgressPass = java.util.concurrent.atomic.AtomicBoolean(true)
+            val isFirstLawsuitProgressPass = java.util.concurrent.atomic.AtomicBoolean(true)
+            val isFirstNotificationLogPass = java.util.concurrent.atomic.AtomicBoolean(true)
+            val isFirstDelinquentPass = java.util.concurrent.atomic.AtomicBoolean(true)
 
             db.collection("occurrences").addSnapshotListener { snapshot, error ->
                 if (error == null && snapshot != null) {
@@ -1037,26 +1077,94 @@ object FirestoreSyncManager {
                 if (error == null && snapshot != null) {
                     scope.launch(Dispatchers.IO) {
                         try {
-                            val cloudIds = mutableSetOf<Long>()
-                            for (doc in snapshot.documents) {
-                                val agg = doc.toObject(AgreementEntity::class.java)
-                                if (agg != null) {
-                                    cloudIds.add(agg.id)
-                                    val existing = dao.getAllAgreements().find { it.id == agg.id }
-                                    if (existing == null) {
-                                        dao.insertAgreement(agg)
-                                    } else if (existing != agg) {
-                                        dao.updateAgreement(agg)
+                            for (dc in snapshot.documentChanges) {
+                                val doc = dc.document
+                                val aggId = doc.id.toLongOrNull()
+                                if (dc.type == com.google.firebase.firestore.DocumentChange.Type.REMOVED) {
+                                    if (aggId != null) {
+                                        dao.deleteAgreement(aggId)
+                                        dao.deleteInstallmentsByAgreementId(aggId)
+                                    }
+                                } else {
+                                    val agg = doc.toObject(AgreementEntity::class.java)
+                                    if (agg != null) {
+                                        if (aggId != null && aggId != 0L) agg.id = aggId
+                                        val existing = dao.getAllAgreements().find { it.id == agg.id }
+                                        if (existing == null) {
+                                            dao.insertAgreement(agg)
+                                        } else if (existing != agg) {
+                                            dao.updateAgreement(agg)
+                                        }
+                                        if (!isFirstAgreementPass.get() && shouldSendNotification(context)) {
+                                            if (!NotificationUtils.isRecentLocalAction(agg.id, "AGREEMENT") && canCouncilOrSindicoSee(context, dao)) {
+                                                val isNew = existing == null
+                                                val notifTitle = if (isNew) "Novo Acordo Cadastrado" else "Acordo Atualizado"
+                                                val notifBody = "Ap. ${agg.apartment} (${agg.ownerName}): Total R$ ${com.example.condsuites.utils.formatCurrency(agg.totalDebt)} em ${agg.installmentsCount}x."
+                                                NotificationUtils.showAppNotification(
+                                                    context,
+                                                    notifTitle,
+                                                    notifBody,
+                                                    agg.id.toInt(),
+                                                    agg.id
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
-                            val localAgreements = dao.getAllAgreements()
-                            for (localAgg in localAgreements) {
-                                if (!cloudIds.contains(localAgg.id)) {
-                                    dao.deleteAgreement(localAgg.id)
+                            isFirstAgreementPass.set(false)
+                        } catch (e: Exception) {
+                            android.util.Log.e("FIRESTORE_SYNC", "Error processing agreements snapshot: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+
+            db.collection("installments").addSnapshotListener { snapshot, error ->
+                if (error == null && snapshot != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            for (dc in snapshot.documentChanges) {
+                                val doc = dc.document
+                                val instId = doc.id.toLongOrNull()
+                                if (dc.type == com.google.firebase.firestore.DocumentChange.Type.REMOVED) {
+                                    if (instId != null) {
+                                        dao.deleteInstallment(instId)
+                                    }
+                                } else {
+                                    val inst = doc.toObject(InstallmentEntity::class.java)
+                                    if (inst != null) {
+                                        if (instId != null && instId != 0L) inst.id = instId
+                                        val existingList = dao.getAllInstallments()
+                                        val existing = existingList.find { it.id == inst.id }
+                                        if (existing == null) {
+                                            dao.insertInstallments(listOf(inst))
+                                        } else if (existing != inst) {
+                                            dao.updateInstallment(inst)
+                                        }
+                                        if (!isFirstInstallmentPass.get() && shouldSendNotification(context)) {
+                                            if (existing != null && existing.isPaid != inst.isPaid && !NotificationUtils.isRecentLocalAction(inst.agreementId, "AGREEMENT") && canCouncilOrSindicoSee(context, dao)) {
+                                                val agg = dao.getAgreementById(inst.agreementId)
+                                                val aptStr = agg?.apartment ?: ""
+                                                val statusStr = if (inst.isPaid) "PAGA" else "PENDENTE"
+                                                val notifTitle = "Atualização de Parcela de Acordo"
+                                                val notifBody = "Parcela ${inst.number} (Ap. $aptStr) marcada como $statusStr (R$ ${com.example.condsuites.utils.formatCurrency(inst.value)})."
+                                                NotificationUtils.showAppNotification(
+                                                    context,
+                                                    notifTitle,
+                                                    notifBody,
+                                                    inst.id.toInt(),
+                                                    inst.agreementId
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                        } catch (_: Exception) {}
+                            isFirstInstallmentPass.set(false)
+                        } catch (e: Exception) {
+                            android.util.Log.e("FIRESTORE_SYNC", "Error processing installments snapshot: ${e.message}", e)
+                        }
                     }
                 }
             }
@@ -1065,26 +1173,48 @@ object FirestoreSyncManager {
                 if (error == null && snapshot != null) {
                     scope.launch(Dispatchers.IO) {
                         try {
-                            val cloudIds = mutableSetOf<Long>()
-                            for (doc in snapshot.documents) {
-                                val del = doc.toObject(DelinquentEntity::class.java)
-                                if (del != null) {
-                                    cloudIds.add(del.id)
-                                    val existing = dao.getAllDelinquents().find { it.id == del.id }
-                                    if (existing == null) {
-                                        dao.insertDelinquent(del)
-                                    } else if (existing != del) {
-                                        dao.updateDelinquent(del)
+                            for (dc in snapshot.documentChanges) {
+                                val doc = dc.document
+                                val delId = doc.id.toLongOrNull()
+                                if (dc.type == com.google.firebase.firestore.DocumentChange.Type.REMOVED) {
+                                    if (delId != null) {
+                                        dao.deleteDelinquent(delId)
+                                    }
+                                } else {
+                                    val del = doc.toObject(DelinquentEntity::class.java)
+                                    if (del != null) {
+                                        if (delId != null && delId != 0L) del.id = delId
+                                        val existingList = dao.getAllDelinquents()
+                                        val existing = existingList.find { it.id == del.id }
+                                        if (existing == null) {
+                                            dao.insertDelinquent(del)
+                                        } else if (existing != del) {
+                                            dao.updateDelinquent(del)
+                                        }
+                                        if (!isFirstDelinquentPass.get() && shouldSendNotification(context)) {
+                                            if (!NotificationUtils.isRecentLocalAction(del.id, "DELINQUENT") && canCouncilOrSindicoSee(context, dao)) {
+                                                val notifMsg = when {
+                                                    del.notification3Date != existing?.notification3Date && del.notification3Date != null -> "3ª Notificação de Inadimplência emitida."
+                                                    del.notification2Date != existing?.notification2Date && del.notification2Date != null -> "2ª Notificação de Inadimplência emitida."
+                                                    del.notification1Date != existing?.notification1Date && del.notification1Date != null -> "1ª Notificação de Inadimplência emitida."
+                                                    else -> "Atualização no registro de inadimplência."
+                                                }
+                                                NotificationUtils.showAppNotification(
+                                                    context,
+                                                    "Notificação - Ap. ${del.apartment}",
+                                                    "Unidade ${del.apartment} (${del.ownerName}): $notifMsg",
+                                                    del.id.toInt(),
+                                                    del.id
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
-                            val localDelinquents = dao.getAllDelinquents()
-                            for (localDel in localDelinquents) {
-                                if (!cloudIds.contains(localDel.id)) {
-                                    dao.deleteDelinquent(localDel.id)
-                                }
-                            }
-                        } catch (_: Exception) {}
+                            isFirstDelinquentPass.set(false)
+                        } catch (e: Exception) {
+                            android.util.Log.e("FIRESTORE_SYNC", "Error processing delinquents snapshot: ${e.message}", e)
+                        }
                     }
                 }
             }
@@ -1093,26 +1223,44 @@ object FirestoreSyncManager {
                 if (error == null && snapshot != null) {
                     scope.launch(Dispatchers.IO) {
                         try {
-                            val cloudIds = mutableSetOf<Long>()
-                            for (doc in snapshot.documents) {
-                                val item = doc.toObject(LawsuitEntity::class.java)
-                                if (item != null) {
-                                    cloudIds.add(item.id)
-                                    val existing = dao.getAllLawsuits().find { it.id == item.id }
-                                    if (existing == null) {
-                                        dao.insertLawsuit(item)
-                                    } else if (existing != item) {
-                                        dao.updateLawsuit(item)
+                            for (dc in snapshot.documentChanges) {
+                                val doc = dc.document
+                                val lawsuitId = doc.id.toLongOrNull()
+                                if (dc.type == com.google.firebase.firestore.DocumentChange.Type.REMOVED) {
+                                    if (lawsuitId != null) {
+                                        dao.deleteLawsuit(lawsuitId)
+                                    }
+                                } else {
+                                    val lawsuit = doc.toObject(LawsuitEntity::class.java)
+                                    if (lawsuit != null) {
+                                        if (lawsuitId != null && lawsuitId != 0L) lawsuit.id = lawsuitId
+                                        val existing = dao.getAllLawsuits().find { it.id == lawsuit.id }
+                                        if (existing == null) {
+                                            dao.insertLawsuit(lawsuit)
+                                        } else if (existing != lawsuit) {
+                                            dao.updateLawsuit(lawsuit)
+                                        }
+                                        if (!isFirstLawsuitPass.get() && shouldSendNotification(context)) {
+                                            if (!NotificationUtils.isRecentLocalAction(lawsuit.id, "LAWSUIT") && canCouncilOrSindicoSee(context, dao)) {
+                                                val isNew = existing == null
+                                                val notifTitle = if (isNew) "Novo Processo Ajuizado" else "Processo Ajuizado Atualizado"
+                                                val notifBody = "Processo ${lawsuit.processNumber} (Ap. ${lawsuit.apartment} - ${lawsuit.ownerName}): Status '${lawsuit.status}'."
+                                                NotificationUtils.showAppNotification(
+                                                    context,
+                                                    notifTitle,
+                                                    notifBody,
+                                                    lawsuit.id.toInt(),
+                                                    lawsuit.id
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
-                            val localLawsuits = dao.getAllLawsuits()
-                            for (localLawsuit in localLawsuits) {
-                                if (!cloudIds.contains(localLawsuit.id)) {
-                                    dao.deleteLawsuit(localLawsuit.id)
-                                }
-                            }
-                        } catch (_: Exception) {}
+                            isFirstLawsuitPass.set(false)
+                        } catch (e: Exception) {
+                            android.util.Log.e("FIRESTORE_SYNC", "Error processing lawsuits snapshot: ${e.message}", e)
+                        }
                     }
                 }
             }
@@ -1121,21 +1269,33 @@ object FirestoreSyncManager {
                 if (error == null && snapshot != null) {
                     scope.launch(Dispatchers.IO) {
                         try {
-                            val cloudIds = mutableSetOf<Long>()
-                            for (doc in snapshot.documents) {
-                                val item = doc.toObject(AgreementProgressEntity::class.java)
-                                if (item != null) {
-                                    cloudIds.add(item.id)
-                                    dao.insertAgreementProgress(item)
+                            for (dc in snapshot.documentChanges) {
+                                val doc = dc.document
+                                val progId = doc.id.toLongOrNull()
+                                if (dc.type == com.google.firebase.firestore.DocumentChange.Type.REMOVED) {
+                                    if (progId != null) dao.deleteAgreementProgress(progId)
+                                } else {
+                                    val item = doc.toObject(AgreementProgressEntity::class.java)
+                                    if (item != null) {
+                                        dao.insertAgreementProgress(item)
+                                        if (!isFirstAgreementProgressPass.get() && shouldSendNotification(context)) {
+                                            if (!NotificationUtils.isRecentLocalAction(item.agreementId, "AGREEMENT") && canCouncilOrSindicoSee(context, dao)) {
+                                                NotificationUtils.showAppNotification(
+                                                    context,
+                                                    "Novo Andamento em Acordo",
+                                                    "Ap. ${item.apartment}: ${item.description}",
+                                                    item.id.toInt(),
+                                                    item.agreementId
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            val localList = dao.getAllAgreementProgress()
-                            for (localItem in localList) {
-                                if (!cloudIds.contains(localItem.id)) {
-                                    dao.deleteAgreementProgress(localItem.id)
-                                }
-                            }
-                        } catch (_: Exception) {}
+                            isFirstAgreementProgressPass.set(false)
+                        } catch (e: Exception) {
+                            android.util.Log.e("FIRESTORE_SYNC", "Error processing agreement_progress snapshot: ${e.message}", e)
+                        }
                     }
                 }
             }
@@ -1167,21 +1327,33 @@ object FirestoreSyncManager {
                 if (error == null && snapshot != null) {
                     scope.launch(Dispatchers.IO) {
                         try {
-                            val cloudIds = mutableSetOf<Long>()
-                            for (doc in snapshot.documents) {
-                                val item = doc.toObject(LawsuitProgressEntity::class.java)
-                                if (item != null) {
-                                    cloudIds.add(item.id)
-                                    dao.insertLawsuitProgress(item)
+                            for (dc in snapshot.documentChanges) {
+                                val doc = dc.document
+                                val progId = doc.id.toLongOrNull()
+                                if (dc.type == com.google.firebase.firestore.DocumentChange.Type.REMOVED) {
+                                    if (progId != null) dao.deleteLawsuitProgress(progId)
+                                } else {
+                                    val item = doc.toObject(LawsuitProgressEntity::class.java)
+                                    if (item != null) {
+                                        dao.insertLawsuitProgress(item)
+                                        if (!isFirstLawsuitProgressPass.get() && shouldSendNotification(context)) {
+                                            if (!NotificationUtils.isRecentLocalAction(item.lawsuitId, "LAWSUIT") && canCouncilOrSindicoSee(context, dao)) {
+                                                NotificationUtils.showAppNotification(
+                                                    context,
+                                                    "Novo Andamento Processual",
+                                                    "Ap. ${item.apartment}: ${item.description}",
+                                                    item.id.toInt(),
+                                                    item.lawsuitId
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            val localList = dao.getAllLawsuitProgress()
-                            for (localItem in localList) {
-                                if (!cloudIds.contains(localItem.id)) {
-                                    dao.deleteLawsuitProgress(localItem.id)
-                                }
-                            }
-                        } catch (_: Exception) {}
+                            isFirstLawsuitProgressPass.set(false)
+                        } catch (e: Exception) {
+                            android.util.Log.e("FIRESTORE_SYNC", "Error processing lawsuit_progress snapshot: ${e.message}", e)
+                        }
                     }
                 }
             }
@@ -1190,13 +1362,33 @@ object FirestoreSyncManager {
                 if (error == null && snapshot != null) {
                     scope.launch(Dispatchers.IO) {
                         try {
-                            for (doc in snapshot.documents) {
-                                val item = doc.toObject(NotificationLogEntity::class.java)
-                                if (item != null) {
-                                    dao.insertNotificationLog(item)
+                            for (dc in snapshot.documentChanges) {
+                                val doc = dc.document
+                                val logId = doc.id.toLongOrNull()
+                                if (dc.type == com.google.firebase.firestore.DocumentChange.Type.REMOVED) {
+                                    if (logId != null) dao.deleteNotificationLog(logId)
+                                } else {
+                                    val item = doc.toObject(NotificationLogEntity::class.java)
+                                    if (item != null) {
+                                        dao.insertNotificationLog(item)
+                                        if (!isFirstNotificationLogPass.get() && shouldSendNotification(context)) {
+                                            if (!NotificationUtils.isRecentLocalAction(item.id, "NOTIFICATION") && canCouncilOrSindicoSee(context, dao)) {
+                                                NotificationUtils.showAppNotification(
+                                                    context,
+                                                    item.title.ifBlank { "Nova Notificação" },
+                                                    item.message,
+                                                    item.id.toInt(),
+                                                    item.id
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                        } catch (_: Exception) {}
+                            isFirstNotificationLogPass.set(false)
+                        } catch (e: Exception) {
+                            android.util.Log.e("FIRESTORE_SYNC", "Error processing notification_logs snapshot: ${e.message}", e)
+                        }
                     }
                 }
             }

@@ -249,7 +249,11 @@ interface AppDao {
     @Query("SELECT * FROM contracts") suspend fun getAllContracts(): List<ContractEntity>
     @Query("SELECT * FROM notification_logs ORDER BY id DESC") fun getNotificationLogs(): Flow<List<NotificationLogEntity>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertNotificationLog(log: NotificationLogEntity): Long
+    @Query("DELETE FROM notification_logs WHERE id = :id") suspend fun deleteNotificationLog(id: Long)
     @Query("DELETE FROM notification_logs") suspend fun clearNotificationLogs()
+    @Query("SELECT * FROM agreements WHERE id = :id LIMIT 1") suspend fun getAgreementById(id: Long): AgreementEntity?
+    @Query("SELECT * FROM lawsuits WHERE id = :id LIMIT 1") suspend fun getLawsuitById(id: Long): LawsuitEntity?
+    @Query("DELETE FROM installments WHERE id = :id") suspend fun deleteInstallment(id: Long)
 
     @Query("SELECT * FROM units ORDER BY floor ASC, apartment ASC") fun getAllUnits(): Flow<List<UnitEntity>>
     @Query("SELECT * FROM units") suspend fun getAllUnitsList(): List<UnitEntity>

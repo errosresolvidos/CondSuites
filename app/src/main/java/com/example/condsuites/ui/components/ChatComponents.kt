@@ -60,11 +60,17 @@ import com.example.condsuites.utils.CurrencyVisualTransformation
 import com.example.condsuites.utils.downloadFile
 import com.example.condsuites.utils.formatCurrency
 import com.example.condsuites.utils.getFileName
+import android.os.ParcelFileDescriptor
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import com.example.condsuites.utils.executeCloudinaryDownloadToBytes
 import com.example.condsuites.utils.isImageFile
 import com.example.condsuites.utils.isPdfFile
 import com.example.condsuites.utils.isVideoFile
 import com.example.condsuites.utils.openFile
 import com.example.condsuites.utils.openVideoFile
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -667,6 +673,7 @@ fun BudgetVotingCard(
     onToggleVote: (Long, String) -> Unit,
     onCloseVoting: (String?, Double?, Int?, Double?, String?, String?) -> Unit = { _, _, _, _, _, _ -> },
     onOpenImage: (String) -> Unit,
+    onOpenPdf: (String, String) -> Unit = { _, _ -> },
     userRoleMap: Map<String, String> = emptyMap(),
     reads: List<OccurrenceMessageReadEntity> = emptyList(),
     modifier: Modifier = Modifier
@@ -674,6 +681,7 @@ fun BudgetVotingCard(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var fullScreenVideoPath by remember { mutableStateOf<String?>(null) }
+    var viewingPdf by remember { mutableStateOf<Pair<String, String>?>(null) }
     var viewingDocument by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showAuthorizeDialog by remember { mutableStateOf(false) }
 
@@ -878,7 +886,8 @@ fun BudgetVotingCard(
                         val hasUserRejected = attWithVotes.votes.any { it.username == currentUser.username && it.voteType == "REJECT" }
                         val isLeading = acceptVotesCount > 0 && acceptVotesCount == maxAcceptVotes && attachments.size > 1
                         val isThisChosen = isVotingClosed && (att.id == chosenAttachmentId) && !isEntireCardRejected
-                        val isImg = isImageFile(att.fileName) || isPdfFile(att.fileName)
+                        val isImg = isImageFile(att.fileName)
+                        val isPdf = isPdfFile(att.fileName)
                         val isVid = isVideoFile(att.fileName, att.filePath)
                         val ext = att.fileName.substringAfterLast('.', "").uppercase()
 
@@ -998,6 +1007,7 @@ fun BudgetVotingCard(
                                                 .size(50.dp)
                                                 .clickable {
                                                     if (isImg) onOpenImage(att.filePath)
+                                                    else if (isPdf) onOpenPdf(att.filePath, att.fileName)
                                                     else if (isVid) fullScreenVideoPath = att.filePath
                                                     else openFile(context, att.filePath, att.fileName)
                                                 }
@@ -1017,6 +1027,13 @@ fun BudgetVotingCard(
                                                     AsyncImage(
                                                         model = imageModel,
                                                         contentDescription = null,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        contentScale = ContentScale.Crop
+                                                    )
+                                                } else if (isPdf) {
+                                                    PdfThumbnailImage(
+                                                        filePath = att.filePath,
+                                                        fileName = att.fileName,
                                                         modifier = Modifier.fillMaxSize(),
                                                         contentScale = ContentScale.Crop
                                                     )
@@ -1312,6 +1329,14 @@ fun BudgetVotingCard(
         )
     }
 
+    if (viewingPdf != null) {
+        FullScreenPdfDialog(
+            filePath = viewingPdf!!.first,
+            fileName = viewingPdf!!.second,
+            onDismiss = { viewingPdf = null }
+        )
+    }
+
     if (viewingDocument != null) {
         DocumentViewerDialog(
             filePath = viewingDocument!!.first,
@@ -1349,6 +1374,7 @@ fun ChatBubble(
     val scope = rememberCoroutineScope()
     var fullScreenImagePath by remember { mutableStateOf<String?>(null) }
     var fullScreenVideoPath by remember { mutableStateOf<String?>(null) }
+    var viewingPdf by remember { mutableStateOf<Pair<String, String>?>(null) }
     var viewingDocument by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showCloseVotingDialog by remember { mutableStateOf(false) }
 
@@ -1374,6 +1400,7 @@ fun ChatBubble(
                 onToggleVote = onToggleVote,
                 onCloseVoting = onCloseVoting,
                 onOpenImage = { fullScreenImagePath = it },
+                onOpenPdf = { path, name -> viewingPdf = Pair(path, name) },
                 userRoleMap = userRoleMap,
                 reads = reads
             )
@@ -1433,7 +1460,8 @@ fun ChatBubble(
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             attachments.forEach { attWithVotes ->
                                 val att = attWithVotes.attachment
-                                val isImg = isImageFile(att.fileName) || isPdfFile(att.fileName)
+                                val isImg = isImageFile(att.fileName)
+                                val isPdf = isPdfFile(att.fileName)
                                 val isVid = isVideoFile(att.fileName, att.filePath)
 
                                 Surface(
@@ -1442,6 +1470,7 @@ fun ChatBubble(
                                     border = BorderStroke(0.5.dp, Color.LightGray.copy(alpha = 0.5f)),
                                     modifier = Modifier.clickable {
                                         if (isImg) fullScreenImagePath = att.filePath
+                                        else if (isPdf) viewingPdf = Pair(att.filePath, att.fileName)
                                         else if (isVid) fullScreenVideoPath = att.filePath
                                         else openFile(context, att.filePath, att.fileName)
                                     }
@@ -1467,6 +1496,19 @@ fun ChatBubble(
                                                     .heightIn(max = 200.dp)
                                                     .background(Color.Black.copy(alpha = 0.05f)),
                                                 contentScale = ContentScale.Crop
+                                            )
+                                            StorageSourceBadge(
+                                                filePath = att.filePath,
+                                                modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                                            )
+                                        } else if (isPdf) {
+                                            PdfThumbnailImage(
+                                                filePath = att.filePath,
+                                                fileName = att.fileName,
+                                                modifier = Modifier
+                                                    .fillMaxWidth(0.7f)
+                                                    .height(180.dp)
+                                                    .background(Color.White)
                                             )
                                             StorageSourceBadge(
                                                 filePath = att.filePath,
@@ -1662,6 +1704,14 @@ fun ChatBubble(
         FullScreenVideoDialog(
             videoPath = fullScreenVideoPath!!,
             onDismiss = { fullScreenVideoPath = null }
+        )
+    }
+
+    if (viewingPdf != null) {
+        FullScreenPdfDialog(
+            filePath = viewingPdf!!.first,
+            fileName = viewingPdf!!.second,
+            onDismiss = { viewingPdf = null }
         )
     }
 
@@ -2107,6 +2157,509 @@ fun DocumentViewerDialog(filePath: String, fileName: String, onDismiss: () -> Un
                         },
                         modifier = Modifier.fillMaxSize()
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PdfThumbnailImage(
+    filePath: String,
+    fileName: String = "",
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop
+) {
+    val context = LocalContext.current
+    var firstPageBitmap by remember(filePath) { mutableStateOf<Bitmap?>(null) }
+    var pageCount by remember(filePath) { mutableStateOf(0) }
+    var isLoading by remember(filePath) { mutableStateOf(true) }
+
+    LaunchedEffect(filePath) {
+        withContext(Dispatchers.IO) {
+            try {
+                val pfd: ParcelFileDescriptor? = when {
+                    filePath.startsWith("http://") || filePath.startsWith("https://") -> {
+                        val okHttpClient = OkHttpClient.Builder()
+                            .followRedirects(true)
+                            .connectTimeout(15, TimeUnit.SECONDS)
+                            .readTimeout(15, TimeUnit.SECONDS)
+                            .build()
+                        val bytes = executeCloudinaryDownloadToBytes(okHttpClient, filePath)
+                        if (bytes != null && bytes.isNotEmpty()) {
+                            val tempFile = File(context.cacheDir, "pdf_thumb_${filePath.hashCode()}.pdf")
+                            tempFile.writeBytes(bytes)
+                            ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                        } else null
+                    }
+                    filePath.startsWith("content://") -> {
+                        context.contentResolver.openFileDescriptor(Uri.parse(filePath), "r")
+                    }
+                    else -> {
+                        val cleanPath = if (filePath.startsWith("file://")) filePath.removePrefix("file://") else filePath
+                        val file = File(cleanPath)
+                        if (file.exists()) ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY) else null
+                    }
+                }
+
+                if (pfd != null) {
+                    val pdfRenderer = android.graphics.pdf.PdfRenderer(pfd)
+                    pageCount = pdfRenderer.pageCount
+                    if (pageCount > 0) {
+                        val page = pdfRenderer.openPage(0)
+                        val width = page.width * 2
+                        val height = page.height * 2
+                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        bitmap.eraseColor(android.graphics.Color.WHITE)
+                        page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        page.close()
+                        firstPageBitmap = bitmap
+                    }
+                    pdfRenderer.close()
+                    pfd.close()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        if (firstPageBitmap != null) {
+            Image(
+                bitmap = firstPageBitmap!!.asImageBitmap(),
+                contentDescription = "Miniatura do PDF",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = contentScale
+            )
+            Surface(
+                color = Color(0xCC000000),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.PictureAsPdf,
+                        contentDescription = null,
+                        tint = Color(0xFFFF5252),
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        text = if (pageCount > 1) "PDF ($pageCount pág.)" else "PDF",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFFFF0F0)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(4.dp)
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = Color(0xFFD32F2F),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.PictureAsPdf,
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = Color(0xFFD32F2F)
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = if (pageCount > 1) "PDF ($pageCount pág.)" else "PDF",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFD32F2F),
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun FullScreenPdfDialog(
+    filePath: String,
+    fileName: String = "Documento.pdf",
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var pdfBitmaps by remember(filePath) { mutableStateOf<List<Bitmap>?>(null) }
+    var isLoading by remember(filePath) { mutableStateOf(true) }
+    var errorMessage by remember(filePath) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(filePath) {
+        withContext(Dispatchers.IO) {
+            try {
+                val pfd: ParcelFileDescriptor? = when {
+                    filePath.startsWith("http://") || filePath.startsWith("https://") -> {
+                        val okHttpClient = OkHttpClient.Builder()
+                            .followRedirects(true)
+                            .connectTimeout(30, TimeUnit.SECONDS)
+                            .readTimeout(60, TimeUnit.SECONDS)
+                            .build()
+                        val bytes = executeCloudinaryDownloadToBytes(okHttpClient, filePath)
+                        if (bytes != null && bytes.isNotEmpty()) {
+                            val tempFile = File(context.cacheDir, "pdf_full_${filePath.hashCode()}.pdf")
+                            tempFile.writeBytes(bytes)
+                            ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                        } else null
+                    }
+                    filePath.startsWith("content://") -> {
+                        context.contentResolver.openFileDescriptor(Uri.parse(filePath), "r")
+                    }
+                    else -> {
+                        val cleanPath = if (filePath.startsWith("file://")) filePath.removePrefix("file://") else filePath
+                        val file = File(cleanPath)
+                        if (file.exists()) ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY) else null
+                    }
+                }
+
+                if (pfd != null) {
+                    val pdfRenderer = android.graphics.pdf.PdfRenderer(pfd)
+                    val count = pdfRenderer.pageCount
+                    val bitmaps = mutableListOf<Bitmap>()
+                    val density = context.resources.displayMetrics.density
+                    val scale = (density * 1.5f).coerceAtLeast(1.5f)
+
+                    for (i in 0 until count) {
+                        val page = pdfRenderer.openPage(i)
+                        val width = (page.width * scale).toInt()
+                        val height = (page.height * scale).toInt()
+                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        bitmap.eraseColor(android.graphics.Color.WHITE)
+                        page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        page.close()
+                        bitmaps.add(bitmap)
+                    }
+                    pdfRenderer.close()
+                    pfd.close()
+
+                    if (bitmaps.isNotEmpty()) {
+                        pdfBitmaps = bitmaps
+                    } else {
+                        errorMessage = "O PDF não possui páginas."
+                    }
+                } else {
+                    errorMessage = "Não foi possível carregar o arquivo PDF."
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "Erro ao processar PDF: ${e.localizedMessage ?: "Erro desconhecido"}"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    DisposableEffect(filePath) {
+        onDispose {
+            pdfBitmaps?.forEach { bitmap ->
+                if (!bitmap.isRecycled) {
+                    bitmap.recycle()
+                }
+            }
+        }
+    }
+
+    val pageCount = pdfBitmaps?.size ?: 0
+    val pagerState = androidx.compose.foundation.pager.rememberPagerState(pageCount = { pageCount })
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            when {
+                isLoading -> {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(color = Color.White)
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Carregando páginas do PDF...",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color.White
+                        )
+                    }
+                }
+                errorMessage != null || pdfBitmaps.isNullOrEmpty() -> {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.ErrorOutline,
+                            contentDescription = null,
+                            tint = Color(0xFFFF5252),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            errorMessage ?: "Erro ao abrir PDF.",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(Modifier.height(20.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Button(
+                                onClick = { openFile(context, filePath, fileName) },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Text("Abrir em App Externo")
+                            }
+                            OutlinedButton(
+                                onClick = onDismiss,
+                                border = BorderStroke(1.dp, Color.White)
+                            ) {
+                                Text("Fechar", color = Color.White)
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    val bitmaps = pdfBitmaps!!
+                    androidx.compose.foundation.pager.HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize()
+                    ) { pageIndex ->
+                        var scale by remember { mutableStateOf(1f) }
+                        var offset by remember { mutableStateOf(Offset.Zero) }
+                        val minScale = 1f
+                        val maxScale = 5f
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(Unit) {
+                                    detectTransformGestures { _, pan, zoom, _ ->
+                                        scale = (scale * zoom).coerceIn(minScale, maxScale)
+                                        if (scale <= 1f) {
+                                            offset = Offset.Zero
+                                        } else {
+                                            val maxOffsetX = (size.width * (scale - 1)) / 2
+                                            val maxOffsetY = (size.height * (scale - 1)) / 2
+                                            offset = Offset(
+                                                x = (offset.x + pan.x).coerceIn(-maxOffsetX, maxOffsetX),
+                                                y = (offset.y + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
+                                            )
+                                        }
+                                    }
+                                }
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onDoubleTap = { _ ->
+                                            if (scale > 1f) {
+                                                scale = 1f
+                                                offset = Offset.Zero
+                                            } else {
+                                                scale = 2.5f
+                                            }
+                                        },
+                                        onTap = {
+                                            if (scale == 1f) {
+                                                onDismiss()
+                                            }
+                                        }
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                bitmap = bitmaps[pageIndex].asImageBitmap(),
+                                contentDescription = "Página ${pageIndex + 1} de $pageCount",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer(
+                                        scaleX = scale,
+                                        scaleY = scale,
+                                        translationX = offset.x,
+                                        translationY = offset.y
+                                    ),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+                    }
+
+                    // Top Bar Header
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.75f))
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .align(Alignment.TopCenter),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = fileName.ifBlank { "Documento PDF" },
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "Página ${pagerState.currentPage + 1} de $pageCount",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.LightGray
+                            )
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (pageCount > 1) {
+                                IconButton(
+                                    onClick = {
+                                        if (pagerState.currentPage > 0) {
+                                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+                                        }
+                                    },
+                                    enabled = pagerState.currentPage > 0
+                                ) {
+                                    Icon(
+                                        Icons.Default.ChevronLeft,
+                                        contentDescription = "Página Anterior",
+                                        tint = if (pagerState.currentPage > 0) Color.White else Color.Gray
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        if (pagerState.currentPage < pageCount - 1) {
+                                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                                        }
+                                    },
+                                    enabled = pagerState.currentPage < pageCount - 1
+                                ) {
+                                    Icon(
+                                        Icons.Default.ChevronRight,
+                                        contentDescription = "Próxima Página",
+                                        tint = if (pagerState.currentPage < pageCount - 1) Color.White else Color.Gray
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    scope.launch(Dispatchers.IO) {
+                                        val success = downloadFile(context, filePath, fileName.ifBlank { "documento.pdf" })
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, if (success) "PDF baixado para Downloads/CondSuites" else "Erro ao baixar PDF", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = "Baixar PDF", tint = Color.White)
+                            }
+
+                            IconButton(onClick = { openFile(context, filePath, fileName) }) {
+                                Icon(Icons.Default.OpenInNew, contentDescription = "Abrir externo", tint = Color.White)
+                            }
+
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.Default.Close, contentDescription = "Fechar", tint = Color.White)
+                            }
+                        }
+                    }
+
+                    // Bottom Navigation Bar for Multi-page PDFs
+                    if (pageCount > 1) {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.75f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                        ) {
+                            LazyRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp, horizontal = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                items(pageCount) { index ->
+                                    val isSelected = index == pagerState.currentPage
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.DarkGray,
+                                        border = BorderStroke(
+                                            width = if (isSelected) 2.dp else 1.dp,
+                                            color = if (isSelected) Color.White else Color.Gray
+                                        ),
+                                        modifier = Modifier
+                                            .size(width = 40.dp, height = 52.dp)
+                                            .clickable {
+                                                scope.launch { pagerState.animateScrollToPage(index) }
+                                            }
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Image(
+                                                bitmap = bitmaps[index].asImageBitmap(),
+                                                contentDescription = "Miniatura Pág ${index + 1}",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(if (isSelected) Color.Transparent else Color.Black.copy(alpha = 0.3f))
+                                            )
+                                            Text(
+                                                text = "${index + 1}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomCenter)
+                                                    .background(Color.Black.copy(alpha = 0.7f))
+                                                    .fillMaxWidth(),
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                fontSize = 9.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

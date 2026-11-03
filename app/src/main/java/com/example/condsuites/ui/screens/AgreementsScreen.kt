@@ -32,6 +32,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.condsuites.data.dao.AppDao
 import com.example.condsuites.data.model.*
 import com.example.condsuites.service.FirestoreSyncManager
@@ -123,10 +124,11 @@ fun AgreementsManagementScreen(
 
     val selected = agreements.find { it.agreement.id == selectedId }
     val context = LocalContext.current
+    val canManage = currentUser.role in listOf("ADMIN", "Síndico", "Conselheiro Fiscal")
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            if (selectedIds.isNotEmpty() && currentUser.role == "ADMIN") {
+            if (selectedIds.isNotEmpty() && canManage) {
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer,
                     modifier = Modifier.fillMaxWidth()
@@ -170,14 +172,14 @@ fun AgreementsManagementScreen(
                                     isSelected = isSelected,
                                     modifier = Modifier.combinedClickable(
                                         onClick = {
-                                            if (selectedIds.isNotEmpty() && currentUser.role == "ADMIN") {
+                                            if (selectedIds.isNotEmpty() && canManage) {
                                                 selectedIds = if (isSelected) selectedIds - item.delinquent.id else selectedIds + item.delinquent.id
                                             } else {
                                                 delinquentToEdit = item.delinquent
                                             }
                                         },
                                         onLongClick = {
-                                            if (currentUser.role == "ADMIN") {
+                                            if (canManage) {
                                                 selectedIds = selectedIds + item.delinquent.id
                                             }
                                         }
@@ -226,14 +228,14 @@ fun AgreementsManagementScreen(
                                     isSelected = isSelected,
                                     modifier = Modifier.combinedClickable(
                                         onClick = {
-                                            if (selectedIds.isNotEmpty() && currentUser.role == "ADMIN") {
+                                            if (selectedIds.isNotEmpty() && canManage) {
                                                 selectedIds = if (isSelected) selectedIds - item.agreement.id else selectedIds + item.agreement.id
                                             } else {
                                                 agreementToEdit = item
                                             }
                                         },
                                         onLongClick = {
-                                            if (currentUser.role == "ADMIN") {
+                                            if (canManage) {
                                                 selectedIds = selectedIds + item.agreement.id
                                             }
                                         }
@@ -345,7 +347,7 @@ fun AgreementsManagementScreen(
                                     isSelected = isSelected,
                                     modifier = Modifier.combinedClickable(
                                         onClick = {
-                                            if (selectedIds.isNotEmpty() && currentUser.role == "ADMIN") {
+                                            if (selectedIds.isNotEmpty() && canManage) {
                                                 selectedIds = if (isSelected) selectedIds - item.lawsuit.id else selectedIds + item.lawsuit.id
                                             } else {
                                                 if (item.lawsuit.isFinished) lawsuitForEditWithPwd = item.lawsuit
@@ -353,7 +355,7 @@ fun AgreementsManagementScreen(
                                             }
                                         },
                                         onLongClick = {
-                                            if (currentUser.role == "ADMIN") {
+                                            if (canManage) {
                                                 selectedIds = selectedIds + item.lawsuit.id
                                             }
                                         }
@@ -400,6 +402,7 @@ fun AgreementsManagementScreen(
             onDismiss = { showAddAgreement = false; agreementToEdit = null }, 
             onConfirm = { agg, insts -> 
                 val isNewAgreement = agreements.none { it.agreement.id == agg.id }
+                com.example.condsuites.service.NotificationUtils.recordLocalAction(agg.id, "AGREEMENT")
                 scope.launch { 
                     if (isNewAgreement) {
                         dao.insertAgreement(agg)
@@ -409,14 +412,17 @@ fun AgreementsManagementScreen(
                     }
                     dao.insertInstallments(insts)
                     FirestoreSyncManager.syncAgreement(agg)
+                    FirestoreSyncManager.syncInstallments(insts)
                     
                     val delinquent = dao.getDelinquentByApartment(agg.apartment)
                     if (delinquent != null) {
-                        dao.updateDelinquent(delinquent.copy(
+                        val updatedDel = delinquent.copy(
                             ownerName = agg.ownerName,
                             totalDebt = agg.totalDebt,
                             hasMadeAgreement = true
-                        ))
+                        )
+                        dao.updateDelinquent(updatedDel)
+                        FirestoreSyncManager.syncDelinquent(updatedDel)
                     }
 
                     if (isNewAgreement) {
@@ -440,7 +446,7 @@ fun AgreementsManagementScreen(
         )
         if (showAddDelinquent || delinquentToEdit != null) RegisterDelinquentDialog(editingDelinquent = delinquentToEdit, dao = dao, onDismiss = { showAddDelinquent = false; delinquentToEdit = null }, onConfirm = { del -> 
             val isNew = delinquentToEdit == null
-            
+            com.example.condsuites.service.NotificationUtils.recordLocalAction(del.id, "DELINQUENT")
             scope.launch { 
                 if (isNew) {
                     dao.insertDelinquent(del)
@@ -466,6 +472,7 @@ fun AgreementsManagementScreen(
         })
         if (showAddLawsuit || lawsuitToEdit != null) RegisterLawsuitDialog(lawsuitToEdit, dao, { showAddLawsuit = false; lawsuitToEdit = null }, { lawsuit: LawsuitEntity -> 
             val isNew = lawsuitToEdit == null || lawsuitToEdit!!.processNumber.isEmpty()
+            com.example.condsuites.service.NotificationUtils.recordLocalAction(lawsuit.id, "LAWSUIT")
             scope.launch { 
                 dao.insertLawsuit(lawsuit)
                 FirestoreSyncManager.syncLawsuit(lawsuit)
@@ -480,7 +487,9 @@ fun AgreementsManagementScreen(
                     ))
                 }
                 agreements.find { it.agreement.apartment == lawsuit.apartment }?.let {
-                    dao.updateAgreement(it.agreement.copy(isLawsuit = true))
+                    val updated = it.agreement.copy(isLawsuit = true)
+                    dao.updateAgreement(updated)
+                    FirestoreSyncManager.syncAgreement(updated)
                 }
             }
             showAddLawsuit = false; lawsuitToEdit = null 
@@ -489,18 +498,27 @@ fun AgreementsManagementScreen(
         if (agreementToRenew != null) {
             val agreementToCapture = agreementToRenew!!
             RegisterAgreementDialog(title = "Renovar Acordo", editingAgreement = agreementToCapture, isRenewal = true, dao = dao, onDismiss = { agreementToRenew = null }, onConfirm = { agg, insts -> 
+                com.example.condsuites.service.NotificationUtils.recordLocalAction(agreementToCapture.agreement.id, "AGREEMENT")
+                com.example.condsuites.service.NotificationUtils.recordLocalAction(agg.id, "AGREEMENT")
                 scope.launch { 
-                    dao.updateAgreement(agreementToCapture.agreement.copy(isArchived = true))
-                    dao.insertAgreement(agg.copy(originalAgreementId = agreementToCapture.agreement.id))
+                    val archivedAgg = agreementToCapture.agreement.copy(isArchived = true)
+                    dao.updateAgreement(archivedAgg)
+                    FirestoreSyncManager.syncAgreement(archivedAgg)
+                    val newAgg = agg.copy(originalAgreementId = agreementToCapture.agreement.id)
+                    dao.insertAgreement(newAgg)
                     dao.insertInstallments(insts)
+                    FirestoreSyncManager.syncAgreement(newAgg)
+                    FirestoreSyncManager.syncInstallments(insts)
                     
                     val delinquent = dao.getDelinquentByApartment(agg.apartment)
                     if (delinquent != null) {
-                        dao.updateDelinquent(delinquent.copy(
+                        val updatedDel = delinquent.copy(
                             ownerName = agg.ownerName,
                             totalDebt = agg.totalDebt,
                             hasMadeAgreement = true
-                        ))
+                        )
+                        dao.updateDelinquent(updatedDel)
+                        FirestoreSyncManager.syncDelinquent(updatedDel)
                     }
     
                     dao.insertHistory(DelinquencyHistoryEntity(
@@ -515,13 +533,22 @@ fun AgreementsManagementScreen(
                 agreementToRenew = null 
             })
         }
-        if (selected != null) InstallmentsDetailsDialog(selected, { selectedId = null }, { inst -> scope.launch { dao.updateInstallment(inst) } })
+        if (selected != null) InstallmentsDetailsDialog(selected, { selectedId = null }, { inst ->
+            com.example.condsuites.service.NotificationUtils.recordLocalAction(inst.agreementId, "AGREEMENT")
+            scope.launch {
+                dao.updateInstallment(inst)
+                FirestoreSyncManager.syncInstallment(inst)
+            }
+        })
         if (showHistoryForApt != null) { val history by dao.getAgreementHistory(showHistoryForApt!!).collectAsState(initial = emptyList()); HistoryDialog(showHistoryForApt!!, history, onDismiss = { showHistoryForApt = null }) }
         if (reportChoiceFor != null) { ReportTypeDialog({ reportChoiceFor = null }, { det -> shareAgreementReport(context, reportChoiceFor!!, det); reportChoiceFor = null }) }
         if (showNotificationDetails != null) NotificationHistoryDialog(showNotificationDetails!!, onDismiss = { showNotificationDetails = null })
         if (lawsuitForSuccess != null) LawsuitSuccessDialog(lawsuitForSuccess!!, { lawsuitForSuccess = null }, { lawsuitUpdated: LawsuitEntity -> 
             val updated = lawsuitUpdated.copy(isFinished = true)
+            com.example.condsuites.service.NotificationUtils.recordLocalAction(updated.id, "LAWSUIT")
             scope.launch { 
+                dao.updateLawsuit(updated)
+                FirestoreSyncManager.syncLawsuit(updated) 
                 dao.updateLawsuit(updated)
                 dao.insertHistory(DelinquencyHistoryEntity(
                     apartment = updated.apartment,
@@ -919,7 +946,7 @@ fun AgreementCard(
                 }
                 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(36.dp)) { Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, "Andamentos", tint = MaterialTheme.colorScheme.primary) }
+                    TextButton(onClick = { expanded = !expanded }) { Text("Andamento") }
                     IconButton({ onDetails() }, modifier = Modifier.size(36.dp)) { Icon(Icons.AutoMirrored.Filled.List, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) }
                     if (!agreement.agreement.isLawsuit) {
                         IconButton({ onAjuizar() }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Gavel, null, tint = Color.Red, modifier = Modifier.size(20.dp)) }
@@ -1090,8 +1117,8 @@ fun DelinquentCard(
             }
 
             Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), Arrangement.End) {
-                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(36.dp)) { Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, "Andamentos", tint = MaterialTheme.colorScheme.primary) }
+            Row(Modifier.fillMaxWidth(), Arrangement.End, Alignment.CenterVertically) {
+                TextButton(onClick = { expanded = !expanded }) { Text("Andamento") }
                 IconButton(onClick = onArchive, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Archive, null, tint = Color.Gray, modifier = Modifier.size(20.dp)) }
             }
         }
@@ -1608,8 +1635,17 @@ fun QuotaSelectionDialog(
 @Composable
 fun InstallmentsDetailsDialog(agreement: AgreementWithInstallments, onDismiss: () -> Unit, onInstallmentUpdate: (InstallmentEntity) -> Unit) {
     var editDateFor by remember { mutableStateOf<InstallmentEntity?>(null) }; var undoFor by remember { mutableStateOf<InstallmentEntity?>(null) }
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .padding(vertical = 16.dp)
+        ) {
             Column(Modifier.padding(16.dp)) {
                 Text("Parcelas - ${agreement.agreement.apartment}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(16.dp))
