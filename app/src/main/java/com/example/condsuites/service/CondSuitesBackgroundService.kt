@@ -16,13 +16,31 @@ class CondSuitesBackgroundService : Service() {
             val intent = Intent(context, CondSuitesBackgroundService::class.java)
             ContextCompat.startForegroundService(context, intent)
         }
+
+        fun stopService(context: Context) {
+            val intent = Intent(context, CondSuitesBackgroundService::class.java)
+            context.stopService(intent)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundNotification()
-        return START_STICKY
+        // Encerra o serviço após iniciar a sincronização para não estourar o tempo limite
+        // exigido pelo Android 14+ para Foreground Services do tipo dataSync
+        stopSelf(startId)
+        return START_NOT_STICKY
+    }
+
+    override fun onTimeout(startId: Int) {
+        super.onTimeout(startId)
+        stopSelf(startId)
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        super.onTimeout(startId, fgsType)
+        stopSelf(startId)
     }
 
     private fun startForegroundNotification() {

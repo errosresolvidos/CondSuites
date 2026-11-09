@@ -29,6 +29,8 @@ import com.example.condsuites.service.sync.UrgentOccurrenceScheduler
 import com.example.condsuites.ui.AppMainLayout
 import com.example.condsuites.ui.screens.LoginScreen
 import com.example.condsuites.ui.theme.CondSuitesTheme
+import com.example.condsuites.utils.AppErrorHandler
+import com.example.condsuites.utils.ErrorPopupDialog
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -135,6 +137,10 @@ fun CondSuitesApp(
         }
     }
 
+    LaunchedEffect(Unit) {
+        AppErrorHandler.init { currentUser }
+    }
+
     if (isCheckingSession) {
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -156,6 +162,14 @@ fun CondSuitesApp(
             scope = scope,
             initialOccurrenceId = occurrenceIdState,
             onOccurrenceConsumed = onOccurrenceConsumed
+        )
+    }
+
+    val currentError = AppErrorHandler.currentError
+    if (currentError != null && (AppErrorHandler.isTargetUser(currentUser) || AppErrorHandler.isTargetUser(UserPreferences.getCurrentSessionUser(context)))) {
+        ErrorPopupDialog(
+            errorText = currentError,
+            onDismiss = { AppErrorHandler.clearError() }
         )
     }
 }

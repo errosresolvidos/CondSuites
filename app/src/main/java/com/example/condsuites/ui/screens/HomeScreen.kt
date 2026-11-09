@@ -32,6 +32,7 @@ import com.example.condsuites.service.NotificationUtils.sendFcmPushNotification
 import com.example.condsuites.ui.components.SummaryCard
 import com.example.condsuites.ui.navigation.Screen
 import com.example.condsuites.ui.screens.RegisterOccurrenceDialog
+import com.example.condsuites.utils.copyFileToInternalStorage
 import com.example.condsuites.utils.getFileName
 import com.example.condsuites.utils.uploadImageToCloudinary
 import kotlinx.coroutines.CoroutineScope
@@ -314,8 +315,10 @@ fun HomeScreen(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope, onNa
                     OccurrenceSyncScheduler.scheduleSync(context)
 
                     uris.forEachIndexed { index, uri ->
+                        val localPath = copyFileToInternalStorage(context, uri)
                         uploadImageToCloudinary(context, uri) { path ->
-                            if (path != null) {
+                            val finalPath = path ?: localPath
+                            if (finalPath != null) {
                                 scope.launch(Dispatchers.IO) {
                                     val attId = occId + 2 + index
                                     val att = OccurrenceAttachmentEntity(
@@ -323,7 +326,7 @@ fun HomeScreen(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope, onNa
                                         occurrenceId = occId,
                                         messageId = msgId,
                                         fileName = getFileName(context, uri),
-                                        filePath = path,
+                                        filePath = finalPath,
                                         syncStatus = SyncStatus.PENDING_UPDATE.name
                                     )
                                     dao.insertAttachmentReplace(att)

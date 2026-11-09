@@ -25,6 +25,7 @@ import com.example.condsuites.data.model.FinanceTransactionEntity
 import com.example.condsuites.data.model.OccurrenceEntity
 import com.example.condsuites.data.model.UserEntity
 import com.example.condsuites.service.FirestoreSyncManager
+import com.example.condsuites.utils.deleteCloudinaryFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -71,6 +72,18 @@ fun ConfirmDeleteOccurrenceDialog(
             Button(
                 onClick = {
                     scope.launch(Dispatchers.IO) {
+                        try {
+                            val atts = dao.getAllAttachments().filter { it.occurrenceId == occurrence.id }
+                            atts.forEach { att ->
+                                deleteCloudinaryFile(att.filePath)
+                                FirestoreSyncManager.syncAttachment(att, isDelete = true)
+                            }
+                            val msgs = dao.getAllOccurrenceMessages().filter { it.occurrenceId == occurrence.id }
+                            msgs.forEach { msg ->
+                                FirestoreSyncManager.syncOccurrenceMessage(msg, isDelete = true)
+                            }
+                        } catch (_: Exception) {}
+
                         relatedTxs.forEach { tx ->
                             dao.deleteTransaction(tx.id)
                             FirestoreSyncManager.syncTransaction(tx, isDelete = true)

@@ -99,8 +99,8 @@ object OccurrenceWebSocketManager {
                         return
                     }
 
-                    val currentUsername = UserPreferences.getCurrentSessionUser(context)
-                    if (!senderUsername.isNullOrEmpty() && senderUsername.equals(currentUsername, ignoreCase = true)) {
+                    val currentUsername = UserPreferences.getCurrentSessionUser(context).trim()
+                    if (!senderUsername.isNullOrEmpty() && senderUsername.trim().equals(currentUsername, ignoreCase = true)) {
                         return
                     }
 

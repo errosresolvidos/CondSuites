@@ -69,6 +69,7 @@ import com.example.condsuites.utils.isPdfFile
 import com.example.condsuites.utils.isVideoFile
 import com.example.condsuites.utils.openFile
 import com.example.condsuites.utils.openVideoFile
+import com.example.condsuites.utils.sanitizeLocalPath
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -146,7 +147,7 @@ fun VideoThumbnailImage(
     } else null
 
     LaunchedEffect(filePath) {
-        if (!isCloudinaryVideo) {
+        if (bitmap == null && !isCloudinaryVideo) {
             withContext(Dispatchers.IO) {
                 var retriever: MediaMetadataRetriever? = null
                 try {
@@ -159,7 +160,8 @@ fun VideoThumbnailImage(
                             retriever.setDataSource(context, Uri.parse(filePath))
                         }
                         else -> {
-                            val file = File(filePath)
+                            val cleanPath = sanitizeLocalPath(filePath)
+                            val file = File(cleanPath)
                             if (file.exists()) {
                                 retriever.setDataSource(file.absolutePath)
                             }
@@ -518,6 +520,7 @@ fun BudgetReplyDialog(
     onConfirm: (String, List<Uri>) -> Unit
 ) {
     var note by remember { mutableStateOf("") }
+    var isUploading by remember { mutableStateOf(false) }
     val selectedUris = remember { mutableStateListOf<Uri>() }
     val context = LocalContext.current
     
@@ -574,15 +577,40 @@ fun BudgetReplyDialog(
                 if (selectedUris.isNotEmpty()) {
                     Column(Modifier.fillMaxWidth().heightIn(max = 120.dp).verticalScroll(rememberScrollState())) {
                         selectedUris.forEach { uri ->
+                            val fName = getFileName(context, uri)
+                            val isImg = isImageFile(fName, uri.toString())
+                            val isPdf = isPdfFile(fName)
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.InsertDriveFile, null, Modifier.size(16.dp), tint = Color.Gray)
+                                Icon(
+                                    if (isImg) Icons.Default.Image else if (isPdf) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.InsertDriveFile,
+                                    null,
+                                    Modifier.size(16.dp),
+                                    tint = if (isImg || isPdf) MaterialTheme.colorScheme.primary else Color.Gray
+                                )
                                 Spacer(Modifier.width(4.dp))
-                                Text(getFileName(context, uri), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                IconButton(onClick = { selectedUris.removeIf { it == uri } }, modifier = Modifier.size(24.dp)) {
+                                Text(fName, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                IconButton(onClick = { selectedUris.removeIf { it == uri } }, modifier = Modifier.size(24.dp), enabled = !isUploading) {
                                     Icon(Icons.Default.Close, null, Modifier.size(14.dp), tint = Color.Red)
                                 }
                             }
                         }
+                    }
+                }
+
+                if (isUploading) {
+                    Spacer(Modifier.height(4.dp))
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Enviando arquivo(s)...",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.primaryContainer
+                        )
                     }
                 }
 
@@ -596,9 +624,19 @@ fun BudgetReplyDialog(
             }
         },
         confirmButton = {
-            Button(onClick = {
-                onConfirm(note, selectedUris.toList())
-            }) {
+            Button(
+                onClick = {
+                    val hasImageOrPdf = selectedUris.any {
+                        val fName = getFileName(context, it)
+                        isImageFile(fName, it.toString()) || isPdfFile(fName)
+                    }
+                    if (hasImageOrPdf) {
+                        isUploading = true
+                    }
+                    onConfirm(note, selectedUris.toList())
+                },
+                enabled = !isUploading
+            ) {
                 Text("Enviar ao Conselho")
             }
         },
@@ -651,6 +689,54 @@ fun extractBudgetDetails(text: String, defaultName: String): BudgetDetails {
         }
     } catch (_: Exception) {}
     return BudgetDetails(name, total, installments, startDate, duration)
+}
+
+@Composable
+fun DownloadProgressDialog(
+    fileName: String,
+    progress: Float,
+    onDismiss: () -> Unit = {}
+) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Download,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Baixando arquivo...")
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Text(
+                    text = fileName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(12.dp))
+                LinearProgressIndicator(
+                    progress = { progress.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.primaryContainer
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = if (progress >= 1f) "Download concluído!" else "${(progress * 100).toInt()}% - Aguarde...",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {}
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -886,7 +972,7 @@ fun BudgetVotingCard(
                         val hasUserRejected = attWithVotes.votes.any { it.username == currentUser.username && it.voteType == "REJECT" }
                         val isLeading = acceptVotesCount > 0 && acceptVotesCount == maxAcceptVotes && attachments.size > 1
                         val isThisChosen = isVotingClosed && (att.id == chosenAttachmentId) && !isEntireCardRejected
-                        val isImg = isImageFile(att.fileName)
+                        val isImg = isImageFile(att.fileName, att.filePath)
                         val isPdf = isPdfFile(att.fileName)
                         val isVid = isVideoFile(att.fileName, att.filePath)
                         val ext = att.fileName.substringAfterLast('.', "").uppercase()
@@ -1006,7 +1092,11 @@ fun BudgetVotingCard(
                                             modifier = Modifier
                                                 .size(50.dp)
                                                 .clickable {
-                                                    if (isImg) onOpenImage(att.filePath)
+                                                    if (isImg) {
+                                                        val imageAttachments = attachments.filter { isImageFile(it.attachment.fileName, it.attachment.filePath) }
+                                                        val joinedPaths = imageAttachments.joinToString("|") { it.attachment.filePath }
+                                                        onOpenImage(if (joinedPaths.isNotEmpty()) joinedPaths else att.filePath)
+                                                    }
                                                     else if (isPdf) onOpenPdf(att.filePath, att.fileName)
                                                     else if (isVid) fullScreenVideoPath = att.filePath
                                                     else openFile(context, att.filePath, att.fileName)
@@ -1014,15 +1104,17 @@ fun BudgetVotingCard(
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 if (isImg) {
-                                                    val imageModel: Any = when {
-                                                        att.filePath.startsWith("data:") -> {
-                                                            try {
-                                                                val pure = if (att.filePath.contains(",")) att.filePath.substringAfter(",") else att.filePath
-                                                                android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
-                                                            } catch (_: Exception) { att.filePath }
+                                                    val imageModel = remember(att.filePath) {
+                                                        when {
+                                                            att.filePath.startsWith("data:") -> {
+                                                                try {
+                                                                    val pure = if (att.filePath.contains(",")) att.filePath.substringAfter(",") else att.filePath
+                                                                    android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
+                                                                } catch (_: Exception) { att.filePath }
+                                                            }
+                                                            att.filePath.startsWith("http") -> att.filePath
+                                                            else -> File(att.filePath)
                                                         }
-                                                        att.filePath.startsWith("http") -> att.filePath
-                                                        else -> File(att.filePath)
                                                     }
                                                     AsyncImage(
                                                         model = imageModel,
@@ -1460,7 +1552,7 @@ fun ChatBubble(
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             attachments.forEach { attWithVotes ->
                                 val att = attWithVotes.attachment
-                                val isImg = isImageFile(att.fileName)
+                                val isImg = isImageFile(att.fileName, att.filePath)
                                 val isPdf = isPdfFile(att.fileName)
                                 val isVid = isVideoFile(att.fileName, att.filePath)
 
@@ -1469,7 +1561,11 @@ fun ChatBubble(
                                     shape = RoundedCornerShape(8.dp),
                                     border = BorderStroke(0.5.dp, Color.LightGray.copy(alpha = 0.5f)),
                                     modifier = Modifier.clickable {
-                                        if (isImg) fullScreenImagePath = att.filePath
+                                        if (isImg) {
+                                            val imageAttachments = attachments.filter { isImageFile(it.attachment.fileName, it.attachment.filePath) }
+                                            val joinedPaths = imageAttachments.joinToString("|") { it.attachment.filePath }
+                                            fullScreenImagePath = if (joinedPaths.isNotEmpty()) joinedPaths else att.filePath
+                                        }
                                         else if (isPdf) viewingPdf = Pair(att.filePath, att.fileName)
                                         else if (isVid) fullScreenVideoPath = att.filePath
                                         else openFile(context, att.filePath, att.fileName)
@@ -1477,15 +1573,17 @@ fun ChatBubble(
                                 ) {
                                     Column {
                                         if (isImg) {
-                                            val imageModel: Any = when {
-                                                att.filePath.startsWith("data:") -> {
-                                                    try {
-                                                        val pure = if (att.filePath.contains(",")) att.filePath.substringAfter(",") else att.filePath
-                                                        android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
-                                                    } catch (_: Exception) { att.filePath }
+                                            val imageModel = remember(att.filePath) {
+                                                when {
+                                                    att.filePath.startsWith("data:") -> {
+                                                        try {
+                                                            val pure = if (att.filePath.contains(",")) att.filePath.substringAfter(",") else att.filePath
+                                                            android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
+                                                        } catch (_: Exception) { att.filePath }
+                                                    }
+                                                    att.filePath.startsWith("http") -> att.filePath
+                                                    else -> File(att.filePath)
                                                 }
-                                                att.filePath.startsWith("http") -> att.filePath
-                                                else -> File(att.filePath)
                                             }
 
                                             AsyncImage(
@@ -1764,6 +1862,7 @@ fun CloseVotingDialog(
     }
     var showDatePicker by remember { mutableStateOf(false) }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
+    var isUploading by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     val singleFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -1852,20 +1951,23 @@ fun CloseVotingDialog(
                             Text(if (selectedUri != null) "Alterar Documento" else "Adicionar Documento")
                         }
                         if (selectedUri != null) {
+                            val fName = getFileName(context, selectedUri!!)
+                            val isImg = isImageFile(fName, selectedUri.toString())
+                            val isPdf = isPdfFile(fName)
                             Spacer(Modifier.height(4.dp))
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Icon(
-                                    Icons.AutoMirrored.Filled.InsertDriveFile,
+                                    if (isImg) Icons.Default.Image else if (isPdf) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.InsertDriveFile,
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp),
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                                 Spacer(Modifier.width(4.dp))
                                 Text(
-                                    text = getFileName(context, selectedUri!!),
+                                    text = fName,
                                     style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -1873,7 +1975,8 @@ fun CloseVotingDialog(
                                 )
                                 IconButton(
                                     onClick = { selectedUri = null },
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(24.dp),
+                                    enabled = !isUploading
                                 ) {
                                     Icon(
                                         Icons.Default.Close,
@@ -1884,6 +1987,22 @@ fun CloseVotingDialog(
                                 }
                             }
                         }
+                        if (isUploading) {
+                            Spacer(Modifier.height(4.dp))
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "Enviando documento...",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                LinearProgressIndicator(
+                                    modifier = Modifier.fillMaxWidth().height(4.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.primaryContainer
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1891,9 +2010,15 @@ fun CloseVotingDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    if (selectedUri != null) {
+                        val fName = getFileName(context, selectedUri!!)
+                        if (isImageFile(fName, selectedUri.toString()) || isPdfFile(fName)) {
+                            isUploading = true
+                        }
+                    }
                     onConfirm(budgetName, totalValue, installmentsCount, installmentValue, startDate, duration, selectedUri)
                 },
-                enabled = totalValue > 0 && budgetName.isNotBlank()
+                enabled = !isUploading && totalValue > 0 && budgetName.isNotBlank()
             ) {
                 Text("Confirmar e Encerrar")
             }
@@ -1929,10 +2054,18 @@ fun CloseVotingDialog(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FullScreenImageDialog(filePath: String, onDismiss: () -> Unit) {
-    val pageUrls = if (filePath.contains(",")) {
-        filePath.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    var downloadingState by remember { mutableStateOf<Pair<String, Float>?>(null) }
+    val pageUrls = if (filePath.contains("|")) {
+        filePath.split("|").map { it.trim() }.filter { it.isNotEmpty() }
     } else {
         listOf(filePath)
+    }
+
+    if (downloadingState != null) {
+        DownloadProgressDialog(
+            fileName = downloadingState!!.first,
+            progress = downloadingState!!.second
+        )
     }
 
     val pagerState = androidx.compose.foundation.pager.rememberPagerState(pageCount = { pageUrls.size })
@@ -1952,19 +2085,21 @@ fun FullScreenImageDialog(filePath: String, onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxSize()
             ) { pageIndex ->
                 val url = pageUrls[pageIndex]
-                val imageModel: Any = when {
-                    url.startsWith("data:") -> {
-                        try {
-                            val pure = if (url.contains(",")) url.substringAfter(",") else url
-                            android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
-                        } catch (_: Exception) { url }
+                val imageModel = remember(url) {
+                    when {
+                        url.startsWith("data:") -> {
+                            try {
+                                val pure = if (url.contains(",")) url.substringAfter(",") else url
+                                android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
+                            } catch (_: Exception) { url }
+                        }
+                        url.startsWith("http") -> url
+                        else -> File(sanitizeLocalPath(url))
                     }
-                    url.startsWith("http") -> url
-                    else -> File(url)
                 }
 
-                var scale by remember { mutableStateOf(1f) }
-                var offset by remember { mutableStateOf(Offset.Zero) }
+                var scale by remember(pageIndex) { mutableStateOf(1f) }
+                var offset by remember(pageIndex) { mutableStateOf(Offset.Zero) }
                 val minScale = 1f
                 val maxScale = 5f
 
@@ -2040,11 +2175,15 @@ fun FullScreenImageDialog(filePath: String, onDismiss: () -> Unit) {
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = {
+                            val currentUrl = pageUrls[pagerState.currentPage]
+                            val pageFileName = "documento_p${pagerState.currentPage + 1}.jpg"
+                            downloadingState = Pair(pageFileName, 0.05f)
                             CoroutineScope(Dispatchers.IO).launch {
-                                val currentUrl = pageUrls[pagerState.currentPage]
-                                val pageFileName = "documento_p${pagerState.currentPage + 1}.jpg"
-                                val success = downloadFile(context, currentUrl, pageFileName)
+                                val success = downloadFile(context, currentUrl, pageFileName) { pct ->
+                                    downloadingState = Pair(pageFileName, pct)
+                                }
                                 withContext(Dispatchers.Main) {
+                                    downloadingState = null
                                     Toast.makeText(context, if (success) "Página baixada para Downloads/CondSuites" else "Erro ao baixar", Toast.LENGTH_SHORT).show()
                                 }
                             }
@@ -2082,7 +2221,15 @@ fun FullScreenImageDialog(filePath: String, onDismiss: () -> Unit) {
 
 @Composable
 fun DocumentViewerDialog(filePath: String, fileName: String, onDismiss: () -> Unit) {
+    var downloadingState by remember { mutableStateOf<Pair<String, Float>?>(null) }
     val context = LocalContext.current
+
+    if (downloadingState != null) {
+        DownloadProgressDialog(
+            fileName = downloadingState!!.first,
+            progress = downloadingState!!.second
+        )
+    }
     val extension = fileName.substringAfterLast('.', "").lowercase()
     val viewerUrl = if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
         if (extension in listOf("doc", "docx", "xls", "xlsx", "ppt", "pptx")) {
@@ -2126,9 +2273,13 @@ fun DocumentViewerDialog(filePath: String, fileName: String, onDismiss: () -> Un
 
                     Row {
                         IconButton(onClick = {
+                            downloadingState = Pair(fileName, 0.05f)
                             CoroutineScope(Dispatchers.IO).launch {
-                                val success = downloadFile(context, filePath, fileName)
+                                val success = downloadFile(context, filePath, fileName) { pct ->
+                                    downloadingState = Pair(fileName, pct)
+                                }
                                 withContext(Dispatchers.Main) {
+                                    downloadingState = null
                                     Toast.makeText(context, if (success) "Baixado para Downloads/CondSuites" else "Erro ao baixar", Toast.LENGTH_SHORT).show()
                                 }
                             }
@@ -2176,9 +2327,22 @@ fun PdfThumbnailImage(
     var isLoading by remember(filePath) { mutableStateOf(true) }
 
     LaunchedEffect(filePath) {
-        withContext(Dispatchers.IO) {
+        if (firstPageBitmap == null) {
+            withContext(Dispatchers.IO) {
             try {
                 val pfd: ParcelFileDescriptor? = when {
+                    filePath.startsWith("data:") -> {
+                        try {
+                            val pure = if (filePath.contains(",")) filePath.substringAfter(",") else filePath
+                            val bytes = android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
+                            val tempFile = File(context.cacheDir, "pdf_thumb_${filePath.hashCode()}.pdf")
+                            tempFile.writeBytes(bytes)
+                            ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            null
+                        }
+                    }
                     filePath.startsWith("http://") || filePath.startsWith("https://") -> {
                         val okHttpClient = OkHttpClient.Builder()
                             .followRedirects(true)
@@ -2196,7 +2360,7 @@ fun PdfThumbnailImage(
                         context.contentResolver.openFileDescriptor(Uri.parse(filePath), "r")
                     }
                     else -> {
-                        val cleanPath = if (filePath.startsWith("file://")) filePath.removePrefix("file://") else filePath
+                        val cleanPath = sanitizeLocalPath(filePath)
                         val file = File(cleanPath)
                         if (file.exists()) ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY) else null
                     }
@@ -2224,6 +2388,7 @@ fun PdfThumbnailImage(
                 isLoading = false
             }
         }
+      }
     }
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -2319,6 +2484,18 @@ fun FullScreenPdfDialog(
         withContext(Dispatchers.IO) {
             try {
                 val pfd: ParcelFileDescriptor? = when {
+                    filePath.startsWith("data:") -> {
+                        try {
+                            val pure = if (filePath.contains(",")) filePath.substringAfter(",") else filePath
+                            val bytes = android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
+                            val tempFile = File(context.cacheDir, "pdf_full_${filePath.hashCode()}.pdf")
+                            tempFile.writeBytes(bytes)
+                            ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            null
+                        }
+                    }
                     filePath.startsWith("http://") || filePath.startsWith("https://") -> {
                         val okHttpClient = OkHttpClient.Builder()
                             .followRedirects(true)
@@ -2336,7 +2513,7 @@ fun FullScreenPdfDialog(
                         context.contentResolver.openFileDescriptor(Uri.parse(filePath), "r")
                     }
                     else -> {
-                        val cleanPath = if (filePath.startsWith("file://")) filePath.removePrefix("file://") else filePath
+                        val cleanPath = sanitizeLocalPath(filePath)
                         val file = File(cleanPath)
                         if (file.exists()) ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY) else null
                     }
@@ -2391,6 +2568,14 @@ fun FullScreenPdfDialog(
 
     val pageCount = pdfBitmaps?.size ?: 0
     val pagerState = androidx.compose.foundation.pager.rememberPagerState(pageCount = { pageCount })
+    var downloadingState by remember { mutableStateOf<Pair<String, Float>?>(null) }
+
+    if (downloadingState != null) {
+        DownloadProgressDialog(
+            fileName = downloadingState!!.first,
+            progress = downloadingState!!.second
+        )
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -2579,9 +2764,14 @@ fun FullScreenPdfDialog(
 
                             IconButton(
                                 onClick = {
+                                    val targetName = fileName.ifBlank { "documento.pdf" }
+                                    downloadingState = Pair(targetName, 0.05f)
                                     scope.launch(Dispatchers.IO) {
-                                        val success = downloadFile(context, filePath, fileName.ifBlank { "documento.pdf" })
+                                        val success = downloadFile(context, filePath, targetName) { pct ->
+                                            downloadingState = Pair(targetName, pct)
+                                        }
                                         withContext(Dispatchers.Main) {
+                                            downloadingState = null
                                             Toast.makeText(context, if (success) "PDF baixado para Downloads/CondSuites" else "Erro ao baixar PDF", Toast.LENGTH_SHORT).show()
                                         }
                                     }

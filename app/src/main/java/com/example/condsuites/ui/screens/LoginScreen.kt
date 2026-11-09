@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.example.condsuites.data.dao.AppDao
 import com.example.condsuites.data.model.UserEntity
 import com.example.condsuites.data.preferences.UserPreferences
+import com.example.condsuites.utils.AppErrorHandler
 import com.example.condsuites.utils.AuditLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -195,6 +196,9 @@ fun LoginScreen(dao: AppDao, onLoginSuccess: (UserEntity) -> Unit) {
                                 }
                             } catch (e: Exception) {
                                 errorMessage = "Erro ao fazer login: ${e.localizedMessage}"
+                                if (AppErrorHandler.isTargetUser(username)) {
+                                    AppErrorHandler.showError(e)
+                                }
                                 e.printStackTrace()
                             }
                         }

@@ -20,7 +20,7 @@ import java.net.URL
 object NotificationUtils {
     private val recentNotifications = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val localActions = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private const val DEDUPLICATION_WINDOW_MS = 5000L
+    private const val DEDUPLICATION_WINDOW_MS = 60000L
     private const val LOCAL_ACTION_WINDOW_MS = 10000L
 
     fun recordLocalAction(occurrenceId: Long, actionType: String = "") {
@@ -192,19 +192,6 @@ object NotificationUtils {
     ) {
         if (!UserPreferences.isGlobalNotificationsEnabled(context)) {
             return
-        }
-
-        val currentUsername = UserPreferences.getCurrentSessionUser(context)
-        if (currentUsername.isNotBlank()) {
-            val enabled = UserPreferences.isNotificationsEnabledForUser(context, currentUsername)
-            if (!enabled) {
-                return
-            }
-        }
-        if (!senderUsername.isNullOrEmpty() && senderUsername != currentUsername) {
-            if (!UserPreferences.isNotificationsEnabledForUser(context, senderUsername)) {
-                return
-            }
         }
 
         CoroutineScope(Dispatchers.IO).launch {

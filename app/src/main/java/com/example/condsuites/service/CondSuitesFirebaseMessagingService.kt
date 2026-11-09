@@ -15,8 +15,8 @@ class CondSuitesFirebaseMessagingService : FirebaseMessagingService() {
         val senderUsername = remoteMessage.data["senderUsername"]
         val occurrenceIdStr = remoteMessage.data["occurrenceId"]
 
-        val currentUsername = UserPreferences.getCurrentSessionUser(this)
-        if (!senderUsername.isNullOrEmpty() && senderUsername.equals(currentUsername, ignoreCase = true)) {
+        val currentUsername = UserPreferences.getCurrentSessionUser(this).trim()
+        if (!senderUsername.isNullOrEmpty() && senderUsername.trim().equals(currentUsername, ignoreCase = true)) {
             return
         }
 

@@ -32,9 +32,20 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.TimeUnit
 
-fun isImageFile(fileName: String): Boolean {
-    val ext = fileName.substringAfterLast('.', "").lowercase()
-    return ext in listOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
+fun sanitizeLocalPath(path: String): String {
+    val clean = if (path.startsWith("file://")) path.removePrefix("file://") else path
+    return if (clean.startsWith("/")) {
+        clean.replace(" ", "")
+    } else {
+        clean
+    }
+}
+
+fun isImageFile(fileName: String, filePath: String = ""): Boolean {
+    val nameExt = fileName.substringAfterLast('.', "").lowercase()
+    val pathExt = filePath.substringBefore('?').substringAfterLast('.', "").lowercase()
+    val imgExts = listOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
+    return nameExt in imgExts || pathExt in imgExts || filePath.startsWith("data:image/") || filePath.contains("/image/", ignoreCase = true)
 }
 
 fun isVideoFile(fileName: String, filePath: String = ""): Boolean {
@@ -134,9 +145,15 @@ fun executeCloudinaryDownloadToBytes(okHttpClient: OkHttpClient, originalUrl: St
     return null
 }
 
-suspend fun downloadFile(context: Context, filePath: String, fileName: String): Boolean {
+suspend fun downloadFile(
+    context: Context,
+    filePath: String,
+    fileName: String,
+    onProgress: ((Float) -> Unit)? = null
+): Boolean {
     return withContext(Dispatchers.IO) {
         try {
+            onProgress?.invoke(0.1f)
             val extension = fileName.substringAfterLast('.', "").lowercase()
             val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: when (extension) {
                 "pdf" -> "application/pdf"
@@ -145,23 +162,58 @@ suspend fun downloadFile(context: Context, filePath: String, fileName: String): 
                 else -> "*/*"
             }
 
-            val bodyStream = if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
-                val okHttpClient = OkHttpClient.Builder()
-                    .followRedirects(true)
-                    .followSslRedirects(true)
-                    .connectTimeout(30, TimeUnit.SECONDS)
-                    .readTimeout(60, TimeUnit.SECONDS)
-                    .build()
-                val bytes = executeCloudinaryDownloadToBytes(okHttpClient, filePath) ?: return@withContext false
-                java.io.ByteArrayInputStream(bytes)
-            } else {
-                if (filePath.startsWith("content://")) {
-                    context.contentResolver.openInputStream(Uri.parse(filePath)) ?: return@withContext false
-                } else {
-                    val cleanPath = if (filePath.startsWith("file://")) filePath.removePrefix("file://") else filePath
-                    val file = File(cleanPath)
-                    if (!file.exists()) return@withContext false
-                    file.inputStream()
+            val bodyStream = when {
+                filePath.startsWith("data:") -> {
+                    try {
+                        val pure = if (filePath.contains(",")) filePath.substringAfter(",") else filePath
+                        val bytes = android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
+                        onProgress?.invoke(0.4f)
+                        java.io.ByteArrayInputStream(bytes)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        return@withContext false
+                    }
+                }
+                filePath.startsWith("http://") || filePath.startsWith("https://") -> {
+                    onProgress?.invoke(0.2f)
+                    val okHttpClient = OkHttpClient.Builder()
+                        .followRedirects(true)
+                        .followSslRedirects(true)
+                        .connectTimeout(30, TimeUnit.SECONDS)
+                        .readTimeout(60, TimeUnit.SECONDS)
+                        .build()
+                    val bytes = executeCloudinaryDownloadToBytes(okHttpClient, filePath) ?: return@withContext false
+                    onProgress?.invoke(0.6f)
+                    java.io.ByteArrayInputStream(bytes)
+                }
+                else -> {
+                    onProgress?.invoke(0.3f)
+                    if (filePath.startsWith("content://")) {
+                        context.contentResolver.openInputStream(Uri.parse(filePath)) ?: return@withContext false
+                    } else {
+                        val cleanPath = sanitizeLocalPath(filePath)
+                        val file = File(cleanPath)
+                        if (!file.exists()) return@withContext false
+                        file.inputStream()
+                    }
+                }
+            }
+
+            val totalAvailable = try { bodyStream.available().toLong() } catch (_: Exception) { 0L }
+
+            val copyStream: (java.io.InputStream, java.io.OutputStream) -> Unit = { input, output ->
+                val buffer = ByteArray(8192)
+                var bytesRead: Int
+                var totalRead = 0L
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    output.write(buffer, 0, bytesRead)
+                    totalRead += bytesRead
+                    if (totalAvailable > 0) {
+                        val pct = 0.6f + (0.35f * (totalRead.toFloat() / totalAvailable.toFloat()))
+                        onProgress?.invoke(pct.coerceIn(0f, 0.95f))
+                    } else {
+                        onProgress?.invoke(0.85f)
+                    }
                 }
             }
 
@@ -177,13 +229,14 @@ suspend fun downloadFile(context: Context, filePath: String, fileName: String): 
 
                 resolver.openOutputStream(uri)?.use { output ->
                     bodyStream.use { input ->
-                        input.copyTo(output)
+                        copyStream(input, output)
                     }
                 }
 
                 contentValues.clear()
                 contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
                 resolver.update(uri, contentValues, null, null)
+                onProgress?.invoke(1f)
                 true
             } else {
                 val downloadsDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "CondSuites")
@@ -191,13 +244,14 @@ suspend fun downloadFile(context: Context, filePath: String, fileName: String): 
                 val targetFile = File(downloadsDir, fileName)
                 targetFile.outputStream().use { output ->
                     bodyStream.use { input ->
-                        input.copyTo(output)
+                        copyStream(input, output)
                     }
                 }
                 try {
                     val mediaScanIntent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(targetFile))
                     context.sendBroadcast(mediaScanIntent)
                 } catch (_: Exception) {}
+                onProgress?.invoke(1f)
                 true
             }
         } catch (e: Exception) {
@@ -273,6 +327,7 @@ fun sha1Hex(input: String): String {
 
 fun showTechnicalLogDialog(context: Context, title: String, message: String) {
     try {
+        AppErrorHandler.showError("$title\n\n$message")
         var activityContext = context
         while (activityContext is android.content.ContextWrapper && activityContext !is android.app.Activity) {
             activityContext = activityContext.baseContext
@@ -304,12 +359,30 @@ fun showTechnicalLogDialog(context: Context, title: String, message: String) {
 
 fun uploadFileToCloudinary(context: Context, uri: Uri, onComplete: (String?) -> Unit) {
     CoroutineScope(Dispatchers.IO).launch {
-        val localPath = com.example.condsuites.service.media.MediaUploadManager.saveMediaLocally(context, uri)
-        if (localPath != null) {
-            withContext(Dispatchers.Main) {
-                onComplete(localPath) // Returns local path for immediate display
+        try {
+            val inputStream = context.contentResolver.openInputStream(uri)
+            val bytes = inputStream?.readBytes()
+            inputStream?.close()
+
+            if (bytes != null && bytes.isNotEmpty()) {
+                val mimeType = context.contentResolver.getType(uri) ?: when {
+                    uri.toString().endsWith(".pdf", true) -> "application/pdf"
+                    uri.toString().endsWith(".png", true) -> "image/png"
+                    else -> "image/jpeg"
+                }
+                val base64String = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                val dataUri = "data:$mimeType;base64,$base64String"
+
+                withContext(Dispatchers.Main) {
+                    onComplete(dataUri)
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    onComplete(null)
+                }
             }
-        } else {
+        } catch (e: Exception) {
+            e.printStackTrace()
             withContext(Dispatchers.Main) {
                 onComplete(null)
             }
@@ -424,7 +497,7 @@ fun openVideoFile(context: Context, videoPath: String) {
             }
         }
 
-        val cleanPath = if (videoPath.startsWith("file://")) videoPath.removePrefix("file://") else videoPath
+        val cleanPath = sanitizeLocalPath(videoPath)
         val file = File(cleanPath)
         if (file.exists()) {
             val uri = try {
@@ -546,7 +619,7 @@ fun openFile(context: Context, filePath: String, fileName: String = "") {
         }
     }
 
-    val cleanPath = if (filePath.startsWith("file://")) filePath.removePrefix("file://") else filePath
+    val cleanPath = sanitizeLocalPath(filePath)
     val file = File(cleanPath)
     if (!file.exists()) {
         val errorDetails = "Arquivo local não encontrado no caminho: $cleanPath (Original: $filePath)"
@@ -635,3 +708,58 @@ fun printHtmlReport(context: Context, htmlContent: String, jobName: String = "Re
         e.printStackTrace()
     }
 }
+
+fun deleteCloudinaryFile(filePath: String) {
+    if (filePath.isBlank() || !filePath.contains("cloudinary.com", ignoreCase = true)) return
+
+    CoroutineScope(Dispatchers.IO).launch {
+        try {
+            val regex = Regex("""cloudinary\.com/([^/]+)/(image|video|raw)/upload/(?:v\d+/)?(.+)""", RegexOption.IGNORE_CASE)
+            val match = regex.find(filePath) ?: return@launch
+
+            val cloudName = match.groupValues[1]
+            val originalResourceType = match.groupValues[2].lowercase()
+            val rawPublicId = match.groupValues[3]
+
+            val apiKey = "267343724521561"
+            val apiSecret = "hmCqGC81V8VncRrM1l0gabMN62M"
+            val timestamp = (System.currentTimeMillis() / 1000).toString()
+
+            val typesToTry = listOf(originalResourceType, "image", "raw", "video").distinct()
+
+            for (resType in typesToTry) {
+                val pid = if (resType == "raw") rawPublicId else rawPublicId.substringBeforeLast('.')
+                val toSign = "public_id=$pid&timestamp=$timestamp$apiSecret"
+                val signature = sha1Hex(toSign)
+
+                val url = "https://api.cloudinary.com/v1_1/$cloudName/$resType/destroy"
+
+                val formBody = okhttp3.FormBody.Builder()
+                    .add("public_id", pid)
+                    .add("timestamp", timestamp)
+                    .add("api_key", apiKey)
+                    .add("signature", signature)
+                    .build()
+
+                val request = Request.Builder()
+                    .url(url)
+                    .post(formBody)
+                    .build()
+
+                val client = OkHttpClient()
+                val response = client.newCall(request).execute()
+                val responseBody = response.body?.string() ?: ""
+                response.close()
+
+                if (responseBody.contains("ok", ignoreCase = true)) {
+                    android.util.Log.d("CLOUDINARY_DELETE", "Successfully destroyed Cloudinary asset: $pid (type=$resType)")
+                    break
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("CLOUDINARY_DELETE", "Error deleting Cloudinary file $filePath: ${e.message}", e)
+        }
+    }
+}
+
+

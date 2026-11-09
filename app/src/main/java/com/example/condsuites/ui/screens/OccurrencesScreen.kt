@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.condsuites.data.dao.AppDao
@@ -49,9 +50,11 @@ import com.example.condsuites.ui.components.ConfirmDeleteOccurrenceDialog
 import com.example.condsuites.ui.components.ProfessionalBudgetActionButton
 import com.example.condsuites.utils.CurrencyVisualTransformation
 import com.example.condsuites.utils.copyFileToInternalStorage
+import com.example.condsuites.utils.deleteCloudinaryFile
 import com.example.condsuites.utils.formatCurrency
 import com.example.condsuites.utils.getFileName
 import com.example.condsuites.utils.isImageFile
+import com.example.condsuites.utils.isPdfFile
 import com.example.condsuites.utils.isVideoFile
 import com.example.condsuites.utils.uploadImageToCloudinary
 import kotlinx.coroutines.CoroutineScope
@@ -499,15 +502,17 @@ fun OccurrencesScreen(
                                         sendFcmPushNotification(
                                             context = context,
                                             dao = dao,
-                                            title = "Nova Mensagem em: ${occWithMsgs.occurrence.title}",
-                                            body = "${currentUser.username}: $text",
+                                            title = "Nova mensagem em Ocorrências",
+                                            body = "${occWithMsgs.occurrence.title} - ${currentUser.username}: $text",
                                             senderUsername = currentUser.username,
                                             occurrenceId = occWithMsgs.occurrence.id
                                         )
 
                                         uris.forEachIndexed { index, uri ->
+                                            val localPath = copyFileToInternalStorage(context, uri)
                                             uploadImageToCloudinary(context, uri) { path ->
-                                                if (path != null) {
+                                                val finalPath = path ?: localPath
+                                                if (finalPath != null) {
                                                     scope.launch(Dispatchers.IO) {
                                                         val attId = System.currentTimeMillis() + index + 1
                                                         val att = OccurrenceAttachmentEntity(
@@ -515,7 +520,7 @@ fun OccurrencesScreen(
                                                             messageId = msgId,
                                                             occurrenceId = occWithMsgs.occurrence.id,
                                                             fileName = getFileName(context, uri),
-                                                            filePath = path,
+                                                            filePath = finalPath,
                                                             syncStatus = SyncStatus.PENDING_UPDATE.name
                                                         )
                                                         dao.insertAttachmentReplace(att)
@@ -638,9 +643,20 @@ OccurrenceSyncScheduler.scheduleSync(context)
                                             val isWithin20Min = elapsed in 0..(20 * 60 * 1000L)
 
                                             if (isAdmin || (isSender && isWithin20Min)) {
+                                                try {
+                                                    val msgAtts = dao.getAllAttachments().filter { it.messageId == msgId }
+                                                    msgAtts.forEach { att ->
+                                                        deleteCloudinaryFile(att.filePath)
+                                                        FirestoreSyncManager.syncAttachment(att, isDelete = true)
+                                                    }
+                                                } catch (_: Exception) {}
+                                                FirestoreSyncManager.syncOccurrenceMessage(targetMsg, isDelete = true)
                                                 dao.deleteOccurrenceMessage(msgId)
-                                                OccurrenceMessageEntity(id = msgId).syncStatus = if (true) SyncStatus.PENDING_DELETE.name else SyncStatus.PENDING_UPDATE.name
-OccurrenceSyncScheduler.scheduleSync(context)
+                                                dao.getOccurrenceEntityById(occWithMsgs.occurrence.id)?.let {
+                                                    it.syncStatus = SyncStatus.PENDING_UPDATE.name
+                                                    dao.updateOccurrence(it)
+                                                    OccurrenceSyncScheduler.scheduleSync(context)
+                                                }
                                             } else {
                                                 withContext(Dispatchers.Main) {
                                                     Toast.makeText(
@@ -810,6 +826,17 @@ OccurrenceSyncScheduler.scheduleSync(context)
                                 },
                                 onDelete = {
                                     scope.launch(Dispatchers.IO) {
+                                        try {
+                                            val occAtts = dao.getAllAttachments().filter { it.occurrenceId == occWithMsgs.occurrence.id }
+                                            occAtts.forEach { att ->
+                                                deleteCloudinaryFile(att.filePath)
+                                                FirestoreSyncManager.syncAttachment(att, isDelete = true)
+                                            }
+                                            val msgs = dao.getAllOccurrenceMessages().filter { it.occurrenceId == occWithMsgs.occurrence.id }
+                                            msgs.forEach { msg ->
+                                                FirestoreSyncManager.syncOccurrenceMessage(msg, isDelete = true)
+                                            }
+                                        } catch (_: Exception) {}
                                         val relatedTxs = dao.getTransactionsByRelatedId(occWithMsgs.occurrence.id)
                                         relatedTxs.forEach { tx ->
                                             dao.deleteTransaction(tx.id)
@@ -817,8 +844,7 @@ OccurrenceSyncScheduler.scheduleSync(context)
                                         }
                                         dao.deleteTransactionsByRelatedId(occWithMsgs.occurrence.id)
                                         dao.deleteOccurrence(occWithMsgs.occurrence.id)
-                                        occWithMsgs.occurrence.syncStatus = if (true) SyncStatus.PENDING_DELETE.name else SyncStatus.PENDING_UPDATE.name
-OccurrenceSyncScheduler.scheduleSync(context)
+                                        FirestoreSyncManager.syncOccurrence(occWithMsgs.occurrence, isDelete = true)
                                     }
                                 },
                                 onEditOccurrence = { newApartment, newTitle, newDescription ->
@@ -1045,16 +1071,28 @@ OccurrenceSyncScheduler.scheduleSync(context)
                         onClick = {
                             scope.launch(Dispatchers.IO) {
                                 selectedIds.forEach { id ->
+                                    try {
+                                        val occAtts = dao.getAllAttachments().filter { it.occurrenceId == id }
+                                        occAtts.forEach { att ->
+                                            deleteCloudinaryFile(att.filePath)
+                                            FirestoreSyncManager.syncAttachment(att, isDelete = true)
+                                        }
+                                        val msgs = dao.getAllOccurrenceMessages().filter { it.occurrenceId == id }
+                                        msgs.forEach { msg ->
+                                            FirestoreSyncManager.syncOccurrenceMessage(msg, isDelete = true)
+                                        }
+                                    } catch (_: Exception) {}
                                     val relatedTxs = dao.getTransactionsByRelatedId(id)
                                     relatedTxs.forEach { tx ->
                                         dao.deleteTransaction(tx.id)
                                         FirestoreSyncManager.syncTransaction(tx, isDelete = true)
                                     }
                                     dao.deleteTransactionsByRelatedId(id)
-                                    dao.deleteOccurrence(id)
                                     val occToDelete = occurrences.firstOrNull { it.occurrence.id == id }?.occurrence
-                                    if (occToDelete != null) occToDelete.syncStatus = if (true) SyncStatus.PENDING_DELETE.name else SyncStatus.PENDING_UPDATE.name
-OccurrenceSyncScheduler.scheduleSync(context)
+                                    dao.deleteOccurrence(id)
+                                    if (occToDelete != null) {
+                                        FirestoreSyncManager.syncOccurrence(occToDelete, isDelete = true)
+                                    }
                                 }
                                 selectedIds = emptySet()
                                 showDeleteConfirm = false
@@ -1123,8 +1161,10 @@ OccurrenceSyncScheduler.scheduleSync(context)
                         OccurrenceSyncScheduler.scheduleSync(context)
 
                         uris.forEachIndexed { index, uri -> 
+                            val localPath = copyFileToInternalStorage(context, uri)
                             uploadImageToCloudinary(context, uri) { path -> 
-                                if (path != null) { 
+                                val finalPath = path ?: localPath
+                                if (finalPath != null) { 
                                     scope.launch(Dispatchers.IO) { 
                                         val attId = occId + 2 + index
                                         val att = OccurrenceAttachmentEntity(
@@ -1132,7 +1172,7 @@ OccurrenceSyncScheduler.scheduleSync(context)
                                             occurrenceId = occId,
                                             messageId = msgId,
                                             fileName = getFileName(context, uri),
-                                            filePath = path,
+                                            filePath = finalPath,
                                             syncStatus = SyncStatus.PENDING_UPDATE.name
                                         )
                                         dao.insertAttachmentReplace(att)
@@ -1416,10 +1456,12 @@ fun OccurrenceCard(
     val isDesarquivada = occ.title.contains("Desarquivada", ignoreCase = true)
 
     var replyText by remember { mutableStateOf("") }
+    var isUploading by remember { mutableStateOf(false) }
     var isCouncilOnly by remember { mutableStateOf(false) }
     var isSindicoOnly by remember { mutableStateOf(false) }
     val selectedUris = remember { mutableStateListOf<Uri>() }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         selectedUris.addAll(uris)
@@ -1913,13 +1955,27 @@ fun OccurrenceCard(
                             IconButton(
                                 onClick = {
                                     if (replyText.isNotBlank() || selectedUris.isNotEmpty()) {
-                                        onReply(replyText, isCouncilOnly, isSindicoOnly, selectedUris.toList(), false)
+                                        val hasMedia = selectedUris.any {
+                                            val fName = getFileName(context, it)
+                                            isImageFile(fName) || isPdfFile(fName)
+                                        }
+                                        if (hasMedia) {
+                                            isUploading = true
+                                        }
+                                        val urisToSend = selectedUris.toList()
+                                        onReply(replyText, isCouncilOnly, isSindicoOnly, urisToSend, false)
                                         replyText = ""
                                         selectedUris.clear()
+                                        if (hasMedia) {
+                                            scope.launch {
+                                                kotlinx.coroutines.delay(2500)
+                                                isUploading = false
+                                            }
+                                        }
                                     }
                                 },
                                 modifier = Modifier.size(40.dp),
-                                enabled = replyText.isNotBlank() || selectedUris.isNotEmpty()
+                                enabled = !isUploading && (replyText.isNotBlank() || selectedUris.isNotEmpty())
                             ) {
                                 Icon(
                                     Icons.Default.Send,
@@ -1958,20 +2014,38 @@ fun OccurrenceCard(
                                     val fName = getFileName(context, uri)
                                     val isVid = isVideoFile(fName, uri.toString())
                                     val isImg = isImageFile(fName)
+                                    val isPdf = isPdfFile(fName)
                                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
                                         Icon(
-                                            if (isImg) Icons.Default.Image else if (isVid) Icons.Default.Videocam else Icons.AutoMirrored.Filled.InsertDriveFile,
+                                            if (isImg) Icons.Default.Image else if (isVid) Icons.Default.Videocam else if (isPdf) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.InsertDriveFile,
                                             null,
                                             Modifier.size(16.dp),
-                                            tint = Color.Gray
+                                            tint = if (isImg || isPdf) MaterialTheme.colorScheme.primary else Color.Gray
                                         )
                                         Spacer(Modifier.width(4.dp))
                                         Text(fName, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                        IconButton(onClick = { selectedUris.removeIf { it == uri } }, modifier = Modifier.size(24.dp)) {
+                                        IconButton(onClick = { selectedUris.removeIf { it == uri } }, modifier = Modifier.size(24.dp), enabled = !isUploading) {
                                             Icon(Icons.Default.Close, null, Modifier.size(14.dp), tint = Color.Red)
                                         }
                                     }
                                 }
+                            }
+                        }
+
+                        if (isUploading) {
+                            Spacer(Modifier.height(4.dp))
+                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+                                Text(
+                                    text = "Enviando imagem/PDF...",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                LinearProgressIndicator(
+                                    modifier = Modifier.fillMaxWidth().height(4.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.primaryContainer
+                                )
                             }
                         }
                     }
@@ -2288,6 +2362,7 @@ fun RegisterOccurrenceDialog(
     var isCondo by remember { mutableStateOf(true) }
     var isUrgent by remember { mutableStateOf(false) }
     var showUrgentConfirmDialog by remember { mutableStateOf(false) }
+    var isUploading by remember { mutableStateOf(false) }
     
     var floor by remember { mutableStateOf("T") }
     var valueStr by remember { mutableStateOf("") }
@@ -2892,25 +2967,43 @@ fun RegisterOccurrenceDialog(
                                 val fName = getFileName(context, uri)
                                 val isVid = isVideoFile(fName, uri.toString())
                                 val isImg = isImageFile(fName)
+                                val isPdf = isPdfFile(fName)
                                 Surface(
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
                                     Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
-                                            if (isImg) Icons.Default.Image else if (isVid) Icons.Default.Videocam else Icons.AutoMirrored.Filled.InsertDriveFile,
+                                            if (isImg) Icons.Default.Image else if (isVid) Icons.Default.Videocam else if (isPdf) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.InsertDriveFile,
                                             null,
                                             Modifier.size(20.dp),
-                                            tint = Color.Gray
+                                            tint = if (isImg || isPdf) MaterialTheme.colorScheme.primary else Color.Gray
                                         )
                                         Spacer(Modifier.width(8.dp))
                                         Text(fName, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                        IconButton(onClick = { selectedUris.removeIf { it == uri } }, modifier = Modifier.size(32.dp)) {
+                                        IconButton(onClick = { selectedUris.removeIf { it == uri } }, modifier = Modifier.size(32.dp), enabled = !isUploading) {
                                             Icon(Icons.Default.Close, null, Modifier.size(18.dp), tint = Color.Red)
                                         }
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    if (isUploading) {
+                        Spacer(Modifier.height(8.dp))
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "Enviando imagem/PDF...",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth().height(4.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.primaryContainer
+                            )
                         }
                     }
                 }
@@ -2923,6 +3016,13 @@ fun RegisterOccurrenceDialog(
                     Button(
                         onClick = { 
                             if (title.isNotBlank() && desc.isNotBlank() && (isCondo || apt.isNotBlank())) {
+                                val hasMedia = selectedUris.any {
+                                    val fName = getFileName(context, it)
+                                    isImageFile(fName) || isPdfFile(fName)
+                                }
+                                if (hasMedia) {
+                                    isUploading = true
+                                }
                                 val finalApt = if (isCondo) "CONDOMÍNIO" else apt
                                 
                                 val finalTitle = if (isCondo && isElevatorTitle) {
@@ -2946,10 +3046,16 @@ fun RegisterOccurrenceDialog(
                                 val finalDesc = desc
 
                                 onConfirm(finalTitle, finalDesc, finalApt, isUrgent, selectedUris.toList(), destination)
+                                if (hasMedia) {
+                                    scope.launch {
+                                        kotlinx.coroutines.delay(2500)
+                                        isUploading = false
+                                    }
+                                }
                             }
                         },
                         shape = RoundedCornerShape(12.dp),
-                        enabled = title.isNotBlank() && desc.isNotBlank() && (isCondo || apt.isNotBlank()),
+                        enabled = !isUploading && title.isNotBlank() && desc.isNotBlank() && (isCondo || apt.isNotBlank()),
                         modifier = Modifier.weight(2f)
                     ) {
                         Text("Registrar", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)

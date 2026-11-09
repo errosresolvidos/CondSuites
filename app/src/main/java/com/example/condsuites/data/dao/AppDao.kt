@@ -185,6 +185,7 @@ interface AppDao {
 
     @Query("SELECT * FROM occurrence_attachments") suspend fun getAllAttachments(): List<OccurrenceAttachmentEntity>
     @Query("SELECT * FROM occurrence_attachments WHERE id = :id LIMIT 1") suspend fun getAttachmentById(id: Long): OccurrenceAttachmentEntity?
+    @Query("DELETE FROM occurrence_attachments WHERE id = :id") suspend fun deleteAttachment(id: Long)
     
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAttachmentVote(vote: OccurrenceAttachmentVoteEntity)
     @Query("SELECT * FROM occurrence_attachment_votes") suspend fun getAllAttachmentVotes(): List<OccurrenceAttachmentVoteEntity>
