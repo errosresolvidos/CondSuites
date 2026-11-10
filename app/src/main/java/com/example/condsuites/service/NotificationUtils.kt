@@ -182,6 +182,26 @@ object NotificationUtils {
         notificationManager.notify(idToUse, notificationBuilder.build())
     }
 
+    fun sendTokenToServer(token: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("https://condsuites-server.onrender.com/register-token")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+                val jsonInputString = "{\"token\":\"$token\"}"
+                conn.outputStream.use { os ->
+                    os.write(jsonInputString.toByteArray(Charsets.UTF_8))
+                }
+                val responseCode = conn.responseCode
+                android.util.Log.d("NotificationUtils", "FCM token registered on Render server: $responseCode")
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     fun sendFcmPushNotification(
         context: Context,
         dao: AppDao?, 
@@ -202,23 +222,18 @@ object NotificationUtils {
                 val safeSender = (senderUsername ?: "").replace("\\", "\\\\").replace("\"", "\\\"")
                 val safeOccId = (occurrenceId ?: 0L).toString()
 
-                val url = URL("https://fcm.googleapis.com/fcm/send")
+                val url = URL("https://condsuites-server.onrender.com/send-notification")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
-                conn.setRequestProperty("Authorization", "key=BIMRZzMow5QjcqslRr5kSHKZXxjQ-uZYXwllsajDgy_jlU50vwO9fvMvoh8RQrjl-TGDpB6WjoHy4hUCtYcMXbQ")
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.doOutput = true
 
                 val jsonInputString = """
                     {
-                      "to": "/topics/occurrences",
-                      "priority": "high",
-                      "data": {
-                        "title": "$safeTitle",
-                        "body": "$safeBody",
-                        "senderUsername": "$safeSender",
-                        "occurrenceId": "$safeOccId"
-                      }
+                      "title": "$safeTitle",
+                      "body": "$safeBody",
+                      "senderUsername": "$safeSender",
+                      "occurrenceId": "$safeOccId"
                     }
                 """.trimIndent()
 

@@ -33,5 +33,6 @@ class CondSuitesFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
+        NotificationUtils.sendTokenToServer(token)
     }
 }

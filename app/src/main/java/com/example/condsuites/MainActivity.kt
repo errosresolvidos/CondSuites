@@ -25,6 +25,7 @@ import com.example.condsuites.data.model.UserEntity
 import com.example.condsuites.data.preferences.UserPreferences
 import com.example.condsuites.service.CondSuitesBackgroundService
 import com.example.condsuites.service.FirestoreSyncManager
+import com.example.condsuites.service.NotificationUtils
 import com.example.condsuites.service.sync.UrgentOccurrenceScheduler
 import com.example.condsuites.ui.AppMainLayout
 import com.example.condsuites.ui.screens.LoginScreen
@@ -39,9 +40,17 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     var notificationOccurrenceId by mutableStateOf<Long?>(null)
 
+    private fun extractOccurrenceId(intent: Intent?): Long? {
+        if (intent == null) return null
+        val longVal = intent.getLongExtra("occurrenceId", 0L).takeIf { it != 0L }
+        if (longVal != null) return longVal
+        val strVal = intent.getStringExtra("occurrenceId")
+        return strVal?.toLongOrNull()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        notificationOccurrenceId = intent?.getLongExtra("occurrenceId", 0L)?.takeIf { it != 0L }
+        notificationOccurrenceId = extractOccurrenceId(intent)
         enableEdgeToEdge()
         setContent {
             CondSuitesTheme {
@@ -56,7 +65,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val occId = intent.getLongExtra("occurrenceId", 0L).takeIf { it != 0L }
+        val occId = extractOccurrenceId(intent)
         if (occId != null) {
             notificationOccurrenceId = occId
         }
@@ -124,6 +133,9 @@ fun CondSuitesApp(
                     if (task.isSuccessful) {
                         val token = task.result
                         android.util.Log.d("FCM_TOKEN", "Current FCM Token: $token")
+                        if (!token.isNullOrEmpty()) {
+                            NotificationUtils.sendTokenToServer(token)
+                        }
                     }
                 }
             } catch (_: Exception) {}
