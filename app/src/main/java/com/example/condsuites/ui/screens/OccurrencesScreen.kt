@@ -48,6 +48,7 @@ import com.example.condsuites.ui.components.ChatBubble
 import com.example.condsuites.ui.components.CloseVotingDialog
 import com.example.condsuites.ui.components.ConfirmDeleteOccurrenceDialog
 import com.example.condsuites.ui.components.ProfessionalBudgetActionButton
+import com.example.condsuites.ui.components.SendWhatsappToSindicoDialog
 import com.example.condsuites.utils.CurrencyVisualTransformation
 import com.example.condsuites.utils.copyFileToInternalStorage
 import com.example.condsuites.utils.deleteCloudinaryFile
@@ -352,6 +353,7 @@ fun OccurrencesScreen(
                                 occNumber = occNumber,
                                 currentUser = currentUser,
                                 userRoleMap = userRoleMap,
+                                allUsers = users,
                                 isCompact = isCompact,
                                 isSelected = isSelected,
                                 canPrioritize = canPrioritize,
@@ -403,27 +405,43 @@ fun OccurrencesScreen(
                                         OccurrenceSyncScheduler.scheduleSync(context)
 
                                         val attId = System.currentTimeMillis() + 1
-                                        val filePath = if (attachedUri != null) {
-                                            copyFileToInternalStorage(context, attachedUri) ?: ""
-                                        } else {
-                                            ""
-                                        }
                                         val fileName = if (attachedUri != null) {
                                             getFileName(context, attachedUri)
                                         } else {
                                             "Orçamento: $name (R$ ${formatCurrency(total)})"
                                         }
-                                        val att = OccurrenceAttachmentEntity(
-                                            id = attId,
-                                            messageId = msgId,
-                                            occurrenceId = occWithMsgs.occurrence.id,
-                                            fileName = fileName,
-                                            filePath = filePath,
-                                            syncStatus = SyncStatus.PENDING_UPDATE.name
-                                        )
-                                        dao.insertAttachmentReplace(att)
-                                        FirestoreSyncManager.syncAttachment(att)
-                                        OccurrenceSyncScheduler.scheduleSync(context)
+                                        
+                                        if (attachedUri != null) {
+                                            val localPath = copyFileToInternalStorage(context, attachedUri) ?: ""
+                                            uploadImageToCloudinary(context, attachedUri) { path ->
+                                                val finalPath = path ?: localPath
+                                                scope.launch(Dispatchers.IO) {
+                                                    val att = OccurrenceAttachmentEntity(
+                                                        id = attId,
+                                                        messageId = msgId,
+                                                        occurrenceId = occWithMsgs.occurrence.id,
+                                                        fileName = fileName,
+                                                        filePath = finalPath,
+                                                        syncStatus = SyncStatus.PENDING_UPDATE.name
+                                                    )
+                                                    dao.insertAttachmentReplace(att)
+                                                    FirestoreSyncManager.syncAttachment(att)
+                                                    OccurrenceSyncScheduler.scheduleSync(context)
+                                                }
+                                            }
+                                        } else {
+                                            val att = OccurrenceAttachmentEntity(
+                                                id = attId,
+                                                messageId = msgId,
+                                                occurrenceId = occWithMsgs.occurrence.id,
+                                                fileName = fileName,
+                                                filePath = "",
+                                                syncStatus = SyncStatus.PENDING_UPDATE.name
+                                            )
+                                            dao.insertAttachmentReplace(att)
+                                            FirestoreSyncManager.syncAttachment(att)
+                                            OccurrenceSyncScheduler.scheduleSync(context)
+                                        }
 
                                         val readEntity = OccurrenceMessageReadEntity(
                                             id = generateReadEntityId(msgId, currentUser.username),
@@ -1252,76 +1270,47 @@ fun OccurrencePinnedHeader(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
+                    Row(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.padding(top = 2.dp)
                         ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.primary,
-                                shape = RoundedCornerShape(6.dp)
-                            ) {
-                                Text(
-                                    text = "Nº $occNumber",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-
-                            if (occ.isUrgent) {
-                                Surface(
-                                    color = Color.Red,
-                                    shape = RoundedCornerShape(6.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.NotificationImportant,
-                                            contentDescription = "Urgente",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Text(
-                                            text = "URGENTE",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
-                                    }
-                                }
-                            }
-                            if (occ.type == "CONSELHO") {
-                                Icon(Icons.Default.Gavel, contentDescription = "Conselho", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                            }
-                        }
-
-                        if (occ.title.isNotBlank()) {
                             Text(
-                                text = occ.title,
-                                style = MaterialTheme.typography.titleMedium,
+                                text = "Nº $occNumber",
+                                style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = if (occ.title.endsWith("(Desarquivada)")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
 
-                        Text(
-                            text = if (isCondo) "🏢 CONDOMÍNIO" else "Unidade: ${occ.apartment}",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            color = if (isCondo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (occ.title.isNotBlank()) {
+                                Text(
+                                    text = occ.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (occ.title.endsWith("(Desarquivada)")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            if (occ.type == "CONSELHO") {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Icons.Default.Gavel, contentDescription = "Conselho", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
                     }
 
                     Column(
@@ -1409,11 +1398,22 @@ fun OccurrencePinnedHeader(
                         fontWeight = FontWeight.Medium
                     )
                 }
-                Text(
-                    occ.date,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.Gray
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = if (isCondo) "🏢 CONDOMÍNIO" else "Unidade: ${occ.apartment}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isCondo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        occ.date,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                }
             }
         }
     }
@@ -1426,6 +1426,7 @@ fun OccurrenceCard(
     occNumber: Any = occWithMsgs.occurrence.id,
     currentUser: UserEntity,
     userRoleMap: Map<String, String> = emptyMap(),
+    allUsers: List<UserEntity> = emptyList(),
     isCompact: Boolean = true,
     isSelected: Boolean = false,
     hideHeader: Boolean = false,
@@ -1455,6 +1456,14 @@ fun OccurrenceCard(
     val isArchived = occ.status == "ARQUIVADA"
     val isDesarquivada = occ.title.contains("Desarquivada", ignoreCase = true)
 
+    val isCouncilMember = remember(currentUser) {
+        val role = currentUser.role.trim()
+        role.equals("Conselheiro Fiscal", ignoreCase = true) ||
+                role.contains("Conselho", ignoreCase = true) ||
+                role.equals("ADMIN", ignoreCase = true) ||
+                currentUser.username.equals("admin", ignoreCase = true)
+    }
+
     var replyText by remember { mutableStateOf("") }
     var isUploading by remember { mutableStateOf(false) }
     var isCouncilOnly by remember { mutableStateOf(false) }
@@ -1463,7 +1472,7 @@ fun OccurrenceCard(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         selectedUris.addAll(uris)
     }
     var showBudgetOptionChoiceDialog by remember { mutableStateOf(false) }
@@ -1471,6 +1480,7 @@ fun OccurrenceCard(
     var showZeladorBudgetDialog by remember { mutableStateOf(false) }
     var showEditHeaderDialog by remember { mutableStateOf(false) }
     var showCloseConfirm by remember { mutableStateOf(false) }
+    var showWhatsappDialog by remember { mutableStateOf(false) }
     var messageWithOptions by remember { mutableStateOf<OccurrenceMessageEntity?>(null) }
     var messageToEdit by remember { mutableStateOf<OccurrenceMessageEntity?>(null) }
     var expanded by remember(occ.id, occ.status, occ.title, isCompact, initiallyExpanded) {
@@ -1567,26 +1577,31 @@ fun OccurrenceCard(
         )
     }
 
-    Card(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp)
-            .combinedClickable(
-                onClick = { expanded = !expanded },
-                onLongClick = { onLongClickCard() }
-            ),
-        border = if (occ.isUrgent) BorderStroke(1.5.dp, Color.Red) else BorderStroke(1.5.dp, Color(0xFF2196F3)),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (occ.isUrgent) 5.dp else 3.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = when {
-                isSelected -> MaterialTheme.colorScheme.primaryContainer
-                occ.isUrgent -> Color(0xFFFFF2F2)
-                isCondo -> Color(0xFFE8F4FD)
-                else -> Color(0xFFF7F7F7)
-            }
-        )
     ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = if (occ.isUrgent) 12.dp else 0.dp)
+                .combinedClickable(
+                    onClick = { expanded = !expanded },
+                    onLongClick = { onLongClickCard() }
+                ),
+            border = if (occ.isUrgent) BorderStroke(1.5.dp, Color.Red) else BorderStroke(1.5.dp, Color(0xFF2196F3)),
+            elevation = CardDefaults.cardElevation(defaultElevation = if (occ.isUrgent) 5.dp else 3.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = when {
+                    isSelected -> MaterialTheme.colorScheme.primaryContainer
+                    occ.isUrgent -> Color(0xFFFFF2F2)
+                    isCondo -> Color(0xFFE8F4FD)
+                    else -> Color(0xFFF7F7F7)
+                }
+            )
+        ) {
         Column(Modifier.padding(16.dp)) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
@@ -1600,145 +1615,53 @@ fun OccurrenceCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
+                    Row(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.padding(top = 2.dp)
                         ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.primary,
-                                shape = RoundedCornerShape(6.dp)
-                            ) {
-                                Text(
-                                    text = "Nº $occNumber",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-
-                            if (occ.isUrgent) {
-                                Surface(
-                                    color = Color.Red,
-                                    shape = RoundedCornerShape(6.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.NotificationImportant,
-                                            contentDescription = "Urgente",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Text(
-                                            text = "URGENTE",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
-                                    }
-                                }
-                            }
-                            if (occ.type == "CONSELHO") {
-                                Icon(Icons.Default.Gavel, contentDescription = "Conselho", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                            }
-                        }
-
-                        if (occ.title.isNotBlank()) {
                             Text(
-                                text = occ.title,
-                                style = MaterialTheme.typography.titleMedium,
+                                text = "Nº $occNumber",
+                                style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = if (occ.title.endsWith("(Desarquivada)")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
 
-                        Text(
-                            text = if (isCondo) "🏢 CONDOMÍNIO" else "Unidade: ${occ.apartment}",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            color = if (isCondo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (occ.title.isNotBlank()) {
+                                Text(
+                                    text = occ.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (occ.title.endsWith("(Desarquivada)")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            if (occ.type == "CONSELHO") {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Icons.Default.Gavel, contentDescription = "Conselho", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
                     }
 
                     Column(
                         horizontalAlignment = Alignment.End,
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            if (canPrioritize && onToggleUrgent != null) {
-                                IconButton(
-                                    onClick = { onToggleUrgent() },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.NotificationImportant,
-                                        contentDescription = if (occ.isUrgent) "Remover Urgência" else "Priorizar Chamada",
-                                        tint = if (occ.isUrgent) Color.Red else Color.Gray,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            } else if (occ.isUrgent) {
-                                Icon(
-                                    imageVector = Icons.Default.NotificationImportant,
-                                    contentDescription = "Urgente",
-                                    tint = Color.Red,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            if (canEditOccurrence) {
-                                IconButton(
-                                    onClick = { showEditHeaderDialog = true },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Edit,
-                                        contentDescription = "Editar Ocorrência",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        Surface(
-                            color = when (occ.status) {
-                                "ABERTA" -> Color(0xFFE3F2FD)
-                                "EM_ESPERA" -> Color(0xFFFFF3E0)
-                                "FINALIZADA" -> Color(0xFFE8F5E9)
-                                "ARQUIVADA" -> Color(0xFFECEFF1)
-                                else -> Color.LightGray
-                            },
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text(
-                                text = occ.status,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = when (occ.status) {
-                                    "ABERTA" -> Color(0xFF1976D2)
-                                    "EM_ESPERA" -> Color(0xFFF57C00)
-                                    "FINALIZADA" -> Color(0xFF388E3C)
-                                    "ARQUIVADA" -> Color(0xFF546E7A)
-                                    else -> Color.DarkGray
-                                }
-                            )
-                        }
                     }
                 }
             }
@@ -1775,42 +1698,121 @@ fun OccurrenceCard(
                         }
                     }
                 }
-                Text(
-                    occ.date,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.Gray
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = if (isCondo) "🏢 CONDOMÍNIO" else "Unidade: ${occ.apartment}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isCondo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        occ.date,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                }
             }
 
-            if (!expanded && displayLastMsg.isNotBlank()) {
-                Spacer(Modifier.height(6.dp))
-                Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+            if (!expanded) {
+                val showActionRow = displayLastMsg.isNotBlank() || isCouncilMember || (canPrioritize && onToggleUrgent != null) || occ.isUrgent
+                
+                if (showActionRow) {
+                    Spacer(Modifier.height(6.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(
-                            Icons.Default.Chat,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = if (lastMessage != null && lastMessage.senderUsername.isNotBlank() && lastMessage.senderUsername != "SISTEMA") {
-                                "${lastMessage.senderUsername}: $displayLastMsg"
-                            } else {
-                                displayLastMsg
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 8.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                if (displayLastMsg.isNotBlank()) {
+                                    Icon(
+                                        Icons.Default.Chat,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = if (lastMessage != null && lastMessage.senderUsername.isNotBlank() && lastMessage.senderUsername != "SISTEMA") {
+                                            "${lastMessage.senderUsername}: $displayLastMsg"
+                                        } else {
+                                            displayLastMsg
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                if (isCouncilMember) {
+                                    IconButton(
+                                        onClick = { showWhatsappDialog = true },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ChatBubbleOutline,
+                                            contentDescription = "Enviar ao Síndico via WhatsApp",
+                                            tint = Color(0xFF25D366),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+
+                                if (canPrioritize && onToggleUrgent != null) {
+                                    IconButton(
+                                        onClick = { onToggleUrgent() },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.NotificationImportant,
+                                            contentDescription = if (occ.isUrgent) "Remover Urgência" else "Priorizar Chamada",
+                                            tint = if (occ.isUrgent) Color.Red else Color.Gray,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                } else if (occ.isUrgent) {
+                                    Icon(
+                                        imageVector = Icons.Default.NotificationImportant,
+                                        contentDescription = "Urgente",
+                                        tint = Color.Red,
+                                        modifier = Modifier.size(16.dp).padding(end = 6.dp)
+                                    )
+                                }
+
+                                if (canEditOccurrence) {
+                                    IconButton(
+                                        onClick = { showEditHeaderDialog = true },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Editar Ocorrência",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1909,6 +1911,34 @@ fun OccurrenceCard(
                             userRoleMap = userRoleMap
                         )
                     }
+
+                    if (isCouncilMember) {
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Enviar alerta ao Síndico via WhatsApp",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            IconButton(
+                                onClick = { showWhatsappDialog = true },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ChatBubbleOutline,
+                                    contentDescription = "Enviar ao Síndico via WhatsApp",
+                                    tint = Color(0xFF25D366),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Spacer(Modifier.height(8.dp))
@@ -1940,7 +1970,7 @@ fun OccurrenceCard(
                                 shape = RoundedCornerShape(24.dp),
                                 trailingIcon = {
                                     IconButton(
-                                        onClick = { fileLauncher.launch(arrayOf("*/*")) },
+                                        onClick = { fileLauncher.launch("*/*") },
                                         modifier = Modifier.size(36.dp)
                                     ) {
                                         Icon(
@@ -2128,7 +2158,70 @@ fun OccurrenceCard(
                 }
             }
         }
+    } // Closes Card
+        
+    Row(
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .padding(end = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Surface(
+            color = when (occ.status) {
+                "ABERTA" -> Color(0xFFE3F2FD)
+                "EM_ESPERA" -> Color(0xFFFFF3E0)
+                "FINALIZADA" -> Color(0xFFE8F5E9)
+                "ARQUIVADA" -> Color(0xFFECEFF1)
+                else -> Color.LightGray
+            },
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface)
+        ) {
+            Text(
+                text = occ.status,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = when (occ.status) {
+                    "ABERTA" -> Color(0xFF1976D2)
+                    "EM_ESPERA" -> Color(0xFFF57C00)
+                    "FINALIZADA" -> Color(0xFF388E3C)
+                    "ARQUIVADA" -> Color(0xFF546E7A)
+                    else -> Color.DarkGray
+                },
+                letterSpacing = 1.sp
+            )
+        }
+
+        if (occ.isUrgent) {
+            Surface(
+                color = Color.Red,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        Icons.Default.NotificationImportant,
+                        contentDescription = "Urgente",
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "URGENTE",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+        }
     }
+} // Closes Box
 
 
 
@@ -2282,6 +2375,21 @@ fun OccurrenceCard(
                             Text("Excluir Mensagem")
                         }
                     }
+                    if (isCouncilMember) {
+                        Button(
+                            onClick = {
+                                showWhatsappDialog = true
+                                messageWithOptions = null
+                                onMessageSelected(null)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366), contentColor = Color.White)
+                        ) {
+                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Enviar ao Síndico (WhatsApp)", fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             },
             dismissButton = {
@@ -2292,6 +2400,15 @@ fun OccurrenceCard(
                     }
                 ) { Text("Cancelar") }
             }
+        )
+    }
+
+    if (showWhatsappDialog) {
+        SendWhatsappToSindicoDialog(
+            occWithMsgs = occWithMsgs,
+            occNumber = occNumber,
+            allUsers = allUsers,
+            onDismiss = { showWhatsappDialog = false }
         )
     }
 
@@ -2405,7 +2522,7 @@ fun RegisterOccurrenceDialog(
     var subjectToDelete by remember { mutableStateOf<String?>(null) }
     var expandedTitle by remember { mutableStateOf(false) }
     
-    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         selectedUris.addAll(uris)
     }
 
@@ -2951,7 +3068,7 @@ fun RegisterOccurrenceDialog(
                     Text("Anexos:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(4.dp))
                     OutlinedButton(
-                        onClick = { fileLauncher.launch(arrayOf("*/*")) },
+                        onClick = { fileLauncher.launch("*/*") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     ) {

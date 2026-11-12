@@ -43,6 +43,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,6 +82,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+
+
 
 @Composable
 fun StorageSourceBadge(
@@ -153,6 +157,13 @@ fun VideoThumbnailImage(
                 try {
                     retriever = MediaMetadataRetriever()
                     when {
+                        filePath.startsWith("data:") -> {
+                            val pure = if (filePath.contains(",")) filePath.substringAfter(",") else filePath
+                            val bytes = android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
+                            val tempFile = File(context.cacheDir, "video_thumb_${filePath.hashCode()}.mp4")
+                            tempFile.writeBytes(bytes)
+                            retriever.setDataSource(tempFile.absolutePath)
+                        }
                         filePath.startsWith("http://") || filePath.startsWith("https://") -> {
                             retriever.setDataSource(filePath, HashMap<String, String>())
                         }
@@ -279,7 +290,13 @@ fun FullScreenVideoDialog(
                         VideoView(ctx).apply {
                             videoViewRef = this
                             try {
-                                if (videoPath.startsWith("http://") || videoPath.startsWith("https://") || videoPath.startsWith("content://")) {
+                                if (videoPath.startsWith("data:")) {
+                                    val pure = if (videoPath.contains(",")) videoPath.substringAfter(",") else videoPath
+                                    val bytes = android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
+                                    val tempFile = File(context.cacheDir, "video_full_${videoPath.hashCode()}.mp4")
+                                    tempFile.writeBytes(bytes)
+                                    setVideoPath(tempFile.absolutePath)
+                                } else if (videoPath.startsWith("http://") || videoPath.startsWith("https://") || videoPath.startsWith("content://")) {
                                     setVideoURI(Uri.parse(videoPath))
                                 } else {
                                     val file = File(videoPath)
@@ -524,7 +541,7 @@ fun BudgetReplyDialog(
     val selectedUris = remember { mutableStateListOf<Uri>() }
     val context = LocalContext.current
     
-    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         selectedUris.addAll(uris)
     }
 
@@ -566,7 +583,7 @@ fun BudgetReplyDialog(
                 Text("Anexe os documentos dos orçamentos.", style = MaterialTheme.typography.bodySmall)
                 
                 OutlinedButton(
-                    onClick = { fileLauncher.launch(arrayOf("*/*")) },
+                    onClick = { fileLauncher.launch("*/*") },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.Add, null)
@@ -769,7 +786,6 @@ fun BudgetVotingCard(
     var fullScreenVideoPath by remember { mutableStateOf<String?>(null) }
     var viewingPdf by remember { mutableStateOf<Pair<String, String>?>(null) }
     var viewingDocument by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var showAuthorizeDialog by remember { mutableStateOf(false) }
 
     val totalVotes = attachments.sumOf { it.votes.size }
     val canVote = (currentUser.role == "Conselheiro Fiscal" || currentUser.role == "Síndico" || currentUser.role == "ADMIN") && !isVotingClosed
@@ -1109,8 +1125,12 @@ fun BudgetVotingCard(
                                                             att.filePath.startsWith("data:") -> {
                                                                 try {
                                                                     val pure = if (att.filePath.contains(",")) att.filePath.substringAfter(",") else att.filePath
-                                                                    android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
-                                                                } catch (_: Exception) { att.filePath }
+                                                                    val bytes = android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
+                                                                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                                                } catch (e: Exception) { 
+                                                                    e.printStackTrace()
+                                                                    att.filePath 
+                                                                }
                                                             }
                                                             att.filePath.startsWith("http") -> att.filePath
                                                             else -> File(att.filePath)
@@ -1333,7 +1353,19 @@ fun BudgetVotingCard(
                     Spacer(Modifier.height(8.dp))
                     if (canSindicoAuthorize) {
                         Button(
-                            onClick = { showAuthorizeDialog = true },
+                            onClick = {
+                                val details = extractBudgetDetails(text, "")
+                                val name = details.name.takeIf { it.isNotBlank() } 
+                                    ?: attachments.maxByOrNull { a -> a.votes.count { it.voteType == "ACCEPT" } }?.attachment?.fileName 
+                                    ?: ""
+                                val total = details.total
+                                val count = details.installments
+                                val instValue = if (count > 0) total / count else 0.0
+                                val start = details.startDate.takeIf { it.isNotBlank() } 
+                                    ?: SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
+                                val dur = details.duration
+                                onCloseVoting(name, total, count, instValue, start, dur)
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -1398,20 +1430,6 @@ fun BudgetVotingCard(
                 }
             }
         }
-    }
-
-    if (showAuthorizeDialog) {
-        CloseVotingDialog(
-            attachments = attachments,
-            initialText = text,
-            isNameReadOnly = false,
-            showDocumentPicker = false,
-            onDismiss = { showAuthorizeDialog = false },
-            onConfirm = { name, total, count, instValue, start, dur, _ ->
-                showAuthorizeDialog = false
-                onCloseVoting(name, total, count, instValue, start, dur)
-            }
-        )
     }
 
     if (fullScreenVideoPath != null) {
@@ -1578,8 +1596,12 @@ fun ChatBubble(
                                                     att.filePath.startsWith("data:") -> {
                                                         try {
                                                             val pure = if (att.filePath.contains(",")) att.filePath.substringAfter(",") else att.filePath
-                                                            android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
-                                                        } catch (_: Exception) { att.filePath }
+                                                            val bytes = android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
+                                                            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                                        } catch (e: Exception) {
+                                                            e.printStackTrace()
+                                                            att.filePath
+                                                        }
                                                     }
                                                     att.filePath.startsWith("http") -> att.filePath
                                                     else -> File(att.filePath)
@@ -1865,7 +1887,7 @@ fun CloseVotingDialog(
     var isUploading by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    val singleFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val singleFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             selectedUri = uri
         }
@@ -1943,7 +1965,7 @@ fun CloseVotingDialog(
                         )
                         Spacer(Modifier.height(4.dp))
                         OutlinedButton(
-                            onClick = { singleFileLauncher.launch(arrayOf("*/*")) },
+                            onClick = { singleFileLauncher.launch("*/*") },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null)
@@ -2090,8 +2112,12 @@ fun FullScreenImageDialog(filePath: String, onDismiss: () -> Unit) {
                         url.startsWith("data:") -> {
                             try {
                                 val pure = if (url.contains(",")) url.substringAfter(",") else url
-                                android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
-                            } catch (_: Exception) { url }
+                                val bytes = android.util.Base64.decode(pure, android.util.Base64.DEFAULT)
+                                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                url
+                            }
                         }
                         url.startsWith("http") -> url
                         else -> File(sanitizeLocalPath(url))
@@ -2102,7 +2128,6 @@ fun FullScreenImageDialog(filePath: String, onDismiss: () -> Unit) {
                 var offset by remember(pageIndex) { mutableStateOf(Offset.Zero) }
                 val minScale = 1f
                 val maxScale = 5f
-
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

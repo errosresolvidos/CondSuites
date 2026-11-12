@@ -359,30 +359,12 @@ fun showTechnicalLogDialog(context: Context, title: String, message: String) {
 
 fun uploadFileToCloudinary(context: Context, uri: Uri, onComplete: (String?) -> Unit) {
     CoroutineScope(Dispatchers.IO).launch {
-        try {
-            val inputStream = context.contentResolver.openInputStream(uri)
-            val bytes = inputStream?.readBytes()
-            inputStream?.close()
-
-            if (bytes != null && bytes.isNotEmpty()) {
-                val mimeType = context.contentResolver.getType(uri) ?: when {
-                    uri.toString().endsWith(".pdf", true) -> "application/pdf"
-                    uri.toString().endsWith(".png", true) -> "image/png"
-                    else -> "image/jpeg"
-                }
-                val base64String = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-                val dataUri = "data:$mimeType;base64,$base64String"
-
-                withContext(Dispatchers.Main) {
-                    onComplete(dataUri)
-                }
-            } else {
-                withContext(Dispatchers.Main) {
-                    onComplete(null)
-                }
+        val localPath = com.example.condsuites.service.media.MediaUploadManager.saveMediaLocally(context, uri)
+        if (localPath != null) {
+            withContext(Dispatchers.Main) {
+                onComplete(localPath) // Returns local path for immediate display
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } else {
             withContext(Dispatchers.Main) {
                 onComplete(null)
             }

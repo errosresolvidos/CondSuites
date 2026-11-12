@@ -25,7 +25,21 @@ object MediaUploadManager {
             val fileDir = File(context.filesDir, "media")
             if (!fileDir.exists()) fileDir.mkdirs()
             
-            val fileName = "media_${System.currentTimeMillis()}.jpg"
+            var ext = "jpg"
+            val mimeType = context.contentResolver.getType(uri)
+            if (mimeType != null) {
+                when {
+                    mimeType.contains("pdf") -> ext = "pdf"
+                    mimeType.contains("png") -> ext = "png"
+                    mimeType.contains("video") || mimeType.contains("mp4") -> ext = "mp4"
+                }
+            } else {
+                val path = uri.path ?: ""
+                val pathExt = path.substringAfterLast('.', "")
+                if (pathExt.isNotBlank()) ext = pathExt
+            }
+
+            val fileName = "media_${System.currentTimeMillis()}.$ext"
             val localFile = File(fileDir, fileName)
             
             val outputStream = FileOutputStream(localFile)
@@ -48,12 +62,19 @@ object MediaUploadManager {
 
             val url = "${getBaseUrl(context)}/upload"
             
+            val mimeType = when {
+                file.name.endsWith(".pdf", ignoreCase = true) -> "application/pdf"
+                file.name.endsWith(".png", ignoreCase = true) -> "image/png"
+                file.name.endsWith(".mp4", ignoreCase = true) -> "video/mp4"
+                else -> "image/jpeg"
+            }
+
             val requestBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart(
                     "file",
                     file.name,
-                    file.asRequestBody("image/jpeg".toMediaTypeOrNull())
+                    file.asRequestBody(mimeType.toMediaTypeOrNull())
                 )
                 .build()
 
