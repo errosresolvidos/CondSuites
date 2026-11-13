@@ -58,9 +58,12 @@ import com.example.condsuites.utils.isImageFile
 import com.example.condsuites.utils.isPdfFile
 import com.example.condsuites.utils.isVideoFile
 import com.example.condsuites.utils.uploadImageToCloudinary
+import com.example.condsuites.utils.AppErrorHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -412,21 +415,23 @@ fun OccurrencesScreen(
                                         }
                                         
                                         if (attachedUri != null) {
-                                            val localPath = copyFileToInternalStorage(context, attachedUri) ?: ""
                                             uploadImageToCloudinary(context, attachedUri) { path ->
-                                                val finalPath = path ?: localPath
-                                                scope.launch(Dispatchers.IO) {
-                                                    val att = OccurrenceAttachmentEntity(
-                                                        id = attId,
-                                                        messageId = msgId,
-                                                        occurrenceId = occWithMsgs.occurrence.id,
-                                                        fileName = fileName,
-                                                        filePath = finalPath,
-                                                        syncStatus = SyncStatus.PENDING_UPDATE.name
-                                                    )
-                                                    dao.insertAttachmentReplace(att)
-                                                    FirestoreSyncManager.syncAttachment(att)
-                                                    OccurrenceSyncScheduler.scheduleSync(context)
+                                                if (path != null) {
+                                                    scope.launch(Dispatchers.IO) {
+                                                        val att = OccurrenceAttachmentEntity(
+                                                            id = attId,
+                                                            messageId = msgId,
+                                                            occurrenceId = occWithMsgs.occurrence.id,
+                                                            fileName = fileName,
+                                                            filePath = path,
+                                                            syncStatus = SyncStatus.SYNCED.name
+                                                        )
+                                                        dao.insertAttachmentReplace(att)
+                                                        FirestoreSyncManager.syncAttachment(att)
+                                                        OccurrenceSyncScheduler.scheduleSync(context)
+                                                    }
+                                                } else {
+                                                    AppErrorHandler.showError("Falha no upload do anexo para o Firebase Storage. Verifique sua conexão.")
                                                 }
                                             }
                                         } else {
@@ -526,32 +531,37 @@ fun OccurrencesScreen(
                                             occurrenceId = occWithMsgs.occurrence.id
                                         )
 
-                                        uris.forEachIndexed { index, uri ->
-                                            val localPath = copyFileToInternalStorage(context, uri)
-                                            uploadImageToCloudinary(context, uri) { path ->
-                                                val finalPath = path ?: localPath
-                                                if (finalPath != null) {
-                                                    scope.launch(Dispatchers.IO) {
-                                                        val attId = System.currentTimeMillis() + index + 1
-                                                        val att = OccurrenceAttachmentEntity(
-                                                            id = attId,
-                                                            messageId = msgId,
-                                                            occurrenceId = occWithMsgs.occurrence.id,
-                                                            fileName = getFileName(context, uri),
-                                                            filePath = finalPath,
-                                                            syncStatus = SyncStatus.PENDING_UPDATE.name
-                                                        )
-                                                        dao.insertAttachmentReplace(att)
-                                                        FirestoreSyncManager.syncAttachment(att)
-                                                        OccurrenceSyncScheduler.scheduleSync(context)
-                                                        val pOcc = dao.getOccurrenceEntityById(occWithMsgs.occurrence.id)
-                                                        if (pOcc != null) {
-                                                            pOcc.syncStatus = SyncStatus.PENDING_UPDATE.name
-                                                            dao.updateOccurrence(pOcc)
-                                                            FirestoreSyncManager.syncOccurrence(pOcc)
-                                                        }
+                                        for ((index, uri) in uris.withIndex()) {
+                                            val fileName = getFileName(context, uri)
+                                            val downloadUrl = suspendCancellableCoroutine<String?> { continuation ->
+                                                uploadImageToCloudinary(context, uri) { path ->
+                                                    if (continuation.isActive) {
+                                                        continuation.resume(path)
                                                     }
                                                 }
+                                            }
+
+                                            if (downloadUrl != null) {
+                                                val attId = System.currentTimeMillis() + index + 1
+                                                val att = OccurrenceAttachmentEntity(
+                                                    id = attId,
+                                                    messageId = msgId,
+                                                    occurrenceId = occWithMsgs.occurrence.id,
+                                                    fileName = fileName,
+                                                    filePath = downloadUrl,
+                                                    syncStatus = SyncStatus.SYNCED.name
+                                                )
+                                                dao.insertAttachmentReplace(att)
+                                                FirestoreSyncManager.syncAttachment(att)
+                                                OccurrenceSyncScheduler.scheduleSync(context)
+                                                val pOcc = dao.getOccurrenceEntityById(occWithMsgs.occurrence.id)
+                                                if (pOcc != null) {
+                                                    pOcc.syncStatus = SyncStatus.SYNCED.name
+                                                    dao.updateOccurrence(pOcc)
+                                                    FirestoreSyncManager.syncOccurrence(pOcc)
+                                                }
+                                            } else {
+                                                AppErrorHandler.showError("Falha no upload do anexo '$fileName' para o Firebase Storage. Verifique sua conexão.")
                                             }
                                         }
 
@@ -666,10 +676,15 @@ OccurrenceSyncScheduler.scheduleSync(context)
                                                     msgAtts.forEach { att ->
                                                         deleteCloudinaryFile(att.filePath)
                                                         FirestoreSyncManager.syncAttachment(att, isDelete = true)
+                                                        dao.deleteAttachment(att.id)
                                                     }
                                                 } catch (_: Exception) {}
-                                                FirestoreSyncManager.syncOccurrenceMessage(targetMsg, isDelete = true)
-                                                dao.deleteOccurrenceMessage(msgId)
+
+                                                targetMsg.text = "🚫 Esta mensagem foi apagada."
+                                                targetMsg.syncStatus = SyncStatus.SYNCED.name
+                                                dao.updateOccurrenceMessage(targetMsg)
+                                                FirestoreSyncManager.syncOccurrenceMessage(targetMsg)
+
                                                 dao.getOccurrenceEntityById(occWithMsgs.occurrence.id)?.let {
                                                     it.syncStatus = SyncStatus.PENDING_UPDATE.name
                                                     dao.updateOccurrence(it)
@@ -865,11 +880,23 @@ OccurrenceSyncScheduler.scheduleSync(context)
                                         FirestoreSyncManager.syncOccurrence(occWithMsgs.occurrence, isDelete = true)
                                     }
                                 },
-                                onEditOccurrence = { newApartment, newTitle, newDescription ->
+                                onEditOccurrence = { newApartment, newTitle, newDescription, newDestination ->
+                                    val targetTabName = when (newDestination) {
+                                        "GERAL" -> "Zelador"
+                                        "CONSELHO" -> "Conselho"
+                                        "ADMIN" -> "Admin"
+                                        else -> "Zelador"
+                                    }
+                                    val targetTabIndex = tabs.indexOf(targetTabName)
+                                    if (targetTabIndex != -1 && selectedTab != targetTabIndex) {
+                                        selectedTab = targetTabIndex
+                                    }
+
                                     scope.launch(Dispatchers.IO) {
                                         val updatedOcc = occWithMsgs.occurrence.copy(
                                             apartment = newApartment,
-                                            title = newTitle
+                                            title = newTitle,
+                                            type = newDestination
                                         )
                                         updatedOcc.syncStatus = SyncStatus.PENDING_UPDATE.name
 dao.updateOccurrence(updatedOcc)
@@ -1178,12 +1205,12 @@ OccurrenceSyncScheduler.scheduleSync(context)
                         FirestoreSyncManager.syncOccurrenceMessage(firstMsg)
                         OccurrenceSyncScheduler.scheduleSync(context)
 
-                        uris.forEachIndexed { index, uri -> 
+                        uris.forEachIndexed { index, uri ->
                             val localPath = copyFileToInternalStorage(context, uri)
-                            uploadImageToCloudinary(context, uri) { path -> 
+                            uploadImageToCloudinary(context, uri) { path ->
                                 val finalPath = path ?: localPath
-                                if (finalPath != null) { 
-                                    scope.launch(Dispatchers.IO) { 
+                                if (finalPath != null) {
+                                    scope.launch(Dispatchers.IO) {
                                         val attId = occId + 2 + index
                                         val att = OccurrenceAttachmentEntity(
                                             id = attId,
@@ -1195,10 +1222,10 @@ OccurrenceSyncScheduler.scheduleSync(context)
                                         )
                                         dao.insertAttachmentReplace(att)
                                         FirestoreSyncManager.syncAttachment(att)
-                                        OccurrenceSyncScheduler.scheduleSync(context) 
-                                    } 
-                                } 
-                            } 
+                                        OccurrenceSyncScheduler.scheduleSync(context)
+                                    }
+                                }
+                            }
                         }
                         showAddDialog = false 
                     } 
@@ -1216,7 +1243,7 @@ fun OccurrencePinnedHeader(
     occNumber: Any,
     currentUser: UserEntity,
     onClose: () -> Unit,
-    onEditOccurrence: ((newApartment: String, newTitle: String, newDescription: String) -> Unit)? = null
+    onEditOccurrence: ((newApartment: String, newTitle: String, newDescription: String, newDestination: String) -> Unit)? = null
 ) {
     val occ = occWithMsgs.occurrence
     val messages = occWithMsgs.messages.sortedBy { it.message.id }
@@ -1240,9 +1267,11 @@ fun OccurrencePinnedHeader(
             occurrence = occ,
             occNumber = occNumber,
             firstMessageText = firstMsgText,
+            currentUser = currentUser,
+            isSuperAdmin = isSuperAdminUser(currentUser),
             onDismiss = { showEditHeaderDialog = false },
-            onConfirm = { newApt, newTitle, newDesc ->
-                onEditOccurrence(newApt, newTitle, newDesc)
+            onConfirm = { newApt, newTitle, newDesc, newDest ->
+                onEditOccurrence(newApt, newTitle, newDesc, newDest)
                 showEditHeaderDialog = false
             }
         )
@@ -1302,14 +1331,7 @@ fun OccurrencePinnedHeader(
                                 )
                             }
 
-                            if (occ.type == "CONSELHO") {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(Icons.Default.Gavel, contentDescription = "Conselho", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                                }
-                            }
+
                         }
                     }
 
@@ -1355,29 +1377,31 @@ fun OccurrencePinnedHeader(
                             }
                         }
 
-                        Surface(
-                            color = when (occ.status) {
-                                "ABERTA" -> Color(0xFFE3F2FD)
-                                "EM_ESPERA" -> Color(0xFFFFF3E0)
-                                "FINALIZADA" -> Color(0xFFE8F5E9)
-                                "ARQUIVADA" -> Color(0xFFECEFF1)
-                                else -> Color.LightGray
-                            },
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text(
-                                text = occ.status,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
+                        if (!(occ.status == "ABERTA" && occ.isUrgent)) {
+                            Surface(
                                 color = when (occ.status) {
-                                    "ABERTA" -> Color(0xFF1976D2)
-                                    "EM_ESPERA" -> Color(0xFFF57C00)
-                                    "FINALIZADA" -> Color(0xFF388E3C)
-                                    "ARQUIVADA" -> Color(0xFF546E7A)
-                                    else -> Color.DarkGray
-                                }
-                            )
+                                    "ABERTA" -> Color(0xFFE3F2FD)
+                                    "EM_ESPERA" -> Color(0xFFFFF3E0)
+                                    "FINALIZADA" -> Color(0xFFE8F5E9)
+                                    "ARQUIVADA" -> Color(0xFFECEFF1)
+                                    else -> Color.LightGray
+                                },
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    text = occ.status,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when (occ.status) {
+                                        "ABERTA" -> Color(0xFF1976D2)
+                                        "EM_ESPERA" -> Color(0xFFF57C00)
+                                        "FINALIZADA" -> Color(0xFF388E3C)
+                                        "ARQUIVADA" -> Color(0xFF546E7A)
+                                        else -> Color.DarkGray
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -1446,7 +1470,7 @@ fun OccurrenceCard(
     onDelete: () -> Unit,
     canPrioritize: Boolean = false,
     onToggleUrgent: (() -> Unit)? = null,
-    onEditOccurrence: ((newApartment: String, newTitle: String, newDescription: String) -> Unit)? = null,
+    onEditOccurrence: ((newApartment: String, newTitle: String, newDescription: String, newDestination: String) -> Unit)? = null,
     onDefineBudget: (String, Double, Int, Double, String, String, Uri?) -> Unit = { _, _, _, _, _, _, _ -> }
 ) {
     val occ = occWithMsgs.occurrence
@@ -1569,9 +1593,11 @@ fun OccurrenceCard(
             occurrence = occ,
             occNumber = occNumber,
             firstMessageText = firstMsgText,
+            currentUser = currentUser,
+            isSuperAdmin = isSuperAdminUser(currentUser),
             onDismiss = { showEditHeaderDialog = false },
-            onConfirm = { newApt, newTitle, newDesc ->
-                onEditOccurrence(newApt, newTitle, newDesc)
+            onConfirm = { newApt, newTitle, newDesc, newDest ->
+                onEditOccurrence(newApt, newTitle, newDesc, newDest)
                 showEditHeaderDialog = false
             }
         )
@@ -1647,14 +1673,7 @@ fun OccurrenceCard(
                                 )
                             }
 
-                            if (occ.type == "CONSELHO") {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(Icons.Default.Gavel, contentDescription = "Conselho", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                                }
-                            }
+
                         }
                     }
 
@@ -1987,7 +2006,7 @@ fun OccurrenceCard(
                                     if (replyText.isNotBlank() || selectedUris.isNotEmpty()) {
                                         val hasMedia = selectedUris.any {
                                             val fName = getFileName(context, it)
-                                            isImageFile(fName) || isPdfFile(fName)
+                                            isImageFile(fName, it.toString()) || isPdfFile(fName, it.toString())
                                         }
                                         if (hasMedia) {
                                             isUploading = true
@@ -2043,8 +2062,8 @@ fun OccurrenceCard(
                                 selectedUris.forEach { uri ->
                                     val fName = getFileName(context, uri)
                                     val isVid = isVideoFile(fName, uri.toString())
-                                    val isImg = isImageFile(fName)
-                                    val isPdf = isPdfFile(fName)
+                                    val isImg = isImageFile(fName, uri.toString())
+                                    val isPdf = isPdfFile(fName, uri.toString())
                                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
                                         Icon(
                                             if (isImg) Icons.Default.Image else if (isVid) Icons.Default.Videocam else if (isPdf) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.InsertDriveFile,
@@ -2166,31 +2185,33 @@ fun OccurrenceCard(
             .padding(end = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Surface(
-            color = when (occ.status) {
-                "ABERTA" -> Color(0xFFE3F2FD)
-                "EM_ESPERA" -> Color(0xFFFFF3E0)
-                "FINALIZADA" -> Color(0xFFE8F5E9)
-                "ARQUIVADA" -> Color(0xFFECEFF1)
-                else -> Color.LightGray
-            },
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface)
-        ) {
-            Text(
-                text = occ.status,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
+        if (!(occ.status == "ABERTA" && occ.isUrgent)) {
+            Surface(
                 color = when (occ.status) {
-                    "ABERTA" -> Color(0xFF1976D2)
-                    "EM_ESPERA" -> Color(0xFFF57C00)
-                    "FINALIZADA" -> Color(0xFF388E3C)
-                    "ARQUIVADA" -> Color(0xFF546E7A)
-                    else -> Color.DarkGray
+                    "ABERTA" -> Color(0xFFE3F2FD)
+                    "EM_ESPERA" -> Color(0xFFFFF3E0)
+                    "FINALIZADA" -> Color(0xFFE8F5E9)
+                    "ARQUIVADA" -> Color(0xFFECEFF1)
+                    else -> Color.LightGray
                 },
-                letterSpacing = 1.sp
-            )
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface)
+            ) {
+                Text(
+                    text = occ.status,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = when (occ.status) {
+                        "ABERTA" -> Color(0xFF1976D2)
+                        "EM_ESPERA" -> Color(0xFFF57C00)
+                        "FINALIZADA" -> Color(0xFF388E3C)
+                        "ARQUIVADA" -> Color(0xFF546E7A)
+                        else -> Color.DarkGray
+                    },
+                    letterSpacing = 1.sp
+                )
+            }
         }
 
         if (occ.isUrgent) {
@@ -3083,8 +3104,8 @@ fun RegisterOccurrenceDialog(
                             selectedUris.forEach { uri ->
                                 val fName = getFileName(context, uri)
                                 val isVid = isVideoFile(fName, uri.toString())
-                                val isImg = isImageFile(fName)
-                                val isPdf = isPdfFile(fName)
+                                val isImg = isImageFile(fName, uri.toString())
+                                val isPdf = isPdfFile(fName, uri.toString())
                                 Surface(
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                     shape = RoundedCornerShape(8.dp)
@@ -3135,7 +3156,7 @@ fun RegisterOccurrenceDialog(
                             if (title.isNotBlank() && desc.isNotBlank() && (isCondo || apt.isNotBlank())) {
                                 val hasMedia = selectedUris.any {
                                     val fName = getFileName(context, it)
-                                    isImageFile(fName) || isPdfFile(fName)
+                                    isImageFile(fName, it.toString()) || isPdfFile(fName, it.toString())
                                 }
                                 if (hasMedia) {
                                     isUploading = true
@@ -3214,13 +3235,17 @@ fun EditOccurrenceDialog(
     occurrence: OccurrenceEntity,
     occNumber: Any = occurrence.id,
     firstMessageText: String,
+    currentUser: UserEntity,
+    isSuperAdmin: Boolean,
     onDismiss: () -> Unit,
-    onConfirm: (newApartment: String, newTitle: String, newDescription: String) -> Unit
+    onConfirm: (newApartment: String, newTitle: String, newDescription: String, newDestination: String) -> Unit
 ) {
     var isCondo by remember { mutableStateOf(occurrence.apartment == "CONDOMÍNIO" || occurrence.apartment.isBlank()) }
     var apartment by remember { mutableStateOf(if (occurrence.apartment == "CONDOMÍNIO") "" else occurrence.apartment) }
     var title by remember { mutableStateOf(occurrence.title) }
     var description by remember { mutableStateOf(firstMessageText) }
+    var destination by remember { mutableStateOf(occurrence.type.ifBlank { "GERAL" }) }
+    var showConfirmMoveDialog by remember { mutableStateOf(false) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -3251,6 +3276,40 @@ fun EditOccurrenceDialog(
                 }
 
                 HorizontalDivider(thickness = 0.5.dp)
+
+                if (currentUser.role != "Porteiro" && currentUser.role != "Zelador" || isSuperAdmin) {
+                    Column {
+                        Text("Encaminhar para:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            FilterChip(
+                                selected = destination == "GERAL",
+                                onClick = { destination = "GERAL" },
+                                label = { Text("Zelador", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall) },
+                                leadingIcon = if (destination == "GERAL") { { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) } } else null,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            val destLabel = if (currentUser.role == "Conselheiro Fiscal") "Síndico" else "Conselho"
+                            FilterChip(
+                                selected = destination == "CONSELHO",
+                                onClick = { destination = "CONSELHO" },
+                                label = { Text(destLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall) },
+                                leadingIcon = if (destination == "CONSELHO") { { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) } } else null,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (isSuperAdmin) {
+                                Spacer(Modifier.width(8.dp))
+                                FilterChip(
+                                    selected = destination == "ADMIN",
+                                    onClick = { destination = "ADMIN" },
+                                    label = { Text("Admin", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall) },
+                                    leadingIcon = if (destination == "ADMIN") { { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) } } else null,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
 
                 Column {
                     Text("Local da Ocorrência:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -3318,8 +3377,13 @@ fun EditOccurrenceDialog(
                     Button(
                         onClick = {
                             if (title.isNotBlank() && (isCondo || apartment.isNotBlank())) {
-                                val finalApt = if (isCondo) "CONDOMÍNIO" else apartment
-                                onConfirm(finalApt, title.trim(), description.trim())
+                                val originalType = occurrence.type.ifBlank { "GERAL" }
+                                if (destination != originalType) {
+                                    showConfirmMoveDialog = true
+                                } else {
+                                    val finalApt = if (isCondo) "CONDOMÍNIO" else apartment
+                                    onConfirm(finalApt, title.trim(), description.trim(), destination)
+                                }
                             }
                         },
                         shape = RoundedCornerShape(12.dp),
@@ -3331,5 +3395,33 @@ fun EditOccurrenceDialog(
                 }
             }
         }
+    }
+
+    if (showConfirmMoveDialog) {
+        val destName = when (destination) {
+            "GERAL" -> "Zelador"
+            "CONSELHO" -> "Conselho"
+            "ADMIN" -> "Admin"
+            else -> destination
+        }
+        AlertDialog(
+            onDismissRequest = { showConfirmMoveDialog = false },
+            title = { Text("Confirmar Alteração") },
+            text = { Text("A ocorrência será enviada para a guia $destName. Deseja continuar?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirmMoveDialog = false
+                    val finalApt = if (isCondo) "CONDOMÍNIO" else apartment
+                    onConfirm(finalApt, title.trim(), description.trim(), destination)
+                }) {
+                    Text("Confirmar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmMoveDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }

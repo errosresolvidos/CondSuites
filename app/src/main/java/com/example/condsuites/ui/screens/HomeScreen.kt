@@ -35,9 +35,12 @@ import com.example.condsuites.ui.screens.RegisterOccurrenceDialog
 import com.example.condsuites.utils.copyFileToInternalStorage
 import com.example.condsuites.utils.getFileName
 import com.example.condsuites.utils.uploadImageToCloudinary
+import com.example.condsuites.utils.AppErrorHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -314,26 +317,31 @@ fun HomeScreen(dao: AppDao, currentUser: UserEntity, scope: CoroutineScope, onNa
                     FirestoreSyncManager.syncOccurrenceMessage(firstMsg)
                     OccurrenceSyncScheduler.scheduleSync(context)
 
-                    uris.forEachIndexed { index, uri ->
-                        val localPath = copyFileToInternalStorage(context, uri)
-                        uploadImageToCloudinary(context, uri) { path ->
-                            val finalPath = path ?: localPath
-                            if (finalPath != null) {
-                                scope.launch(Dispatchers.IO) {
-                                    val attId = occId + 2 + index
-                                    val att = OccurrenceAttachmentEntity(
-                                        id = attId,
-                                        occurrenceId = occId,
-                                        messageId = msgId,
-                                        fileName = getFileName(context, uri),
-                                        filePath = finalPath,
-                                        syncStatus = SyncStatus.PENDING_UPDATE.name
-                                    )
-                                    dao.insertAttachmentReplace(att)
-                                    FirestoreSyncManager.syncAttachment(att)
-                                    OccurrenceSyncScheduler.scheduleSync(context)
+                    for ((index, uri) in uris.withIndex()) {
+                        val fileName = getFileName(context, uri)
+                        val downloadUrl = suspendCancellableCoroutine<String?> { continuation ->
+                            uploadImageToCloudinary(context, uri) { path ->
+                                if (continuation.isActive) {
+                                    continuation.resume(path)
                                 }
                             }
+                        }
+
+                        if (downloadUrl != null) {
+                            val attId = occId + 2 + index
+                            val att = OccurrenceAttachmentEntity(
+                                id = attId,
+                                occurrenceId = occId,
+                                messageId = msgId,
+                                fileName = fileName,
+                                filePath = downloadUrl,
+                                syncStatus = SyncStatus.SYNCED.name
+                            )
+                            dao.insertAttachmentReplace(att)
+                            FirestoreSyncManager.syncAttachment(att)
+                            OccurrenceSyncScheduler.scheduleSync(context)
+                        } else {
+                            AppErrorHandler.showError("Falha no upload do anexo '$fileName' para o Firebase Storage.")
                         }
                     }
                 }

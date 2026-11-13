@@ -2,9 +2,11 @@ package com.example.condsuites.ui.components
 
 import com.example.condsuites.data.model.OccurrenceMessageReadEntity
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import com.example.condsuites.utils.AppErrorHandler
 import android.os.Build
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -47,6 +49,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -540,7 +543,7 @@ fun BudgetReplyDialog(
     var isUploading by remember { mutableStateOf(false) }
     val selectedUris = remember { mutableStateListOf<Uri>() }
     val context = LocalContext.current
-    
+
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         selectedUris.addAll(uris)
     }
@@ -596,7 +599,7 @@ fun BudgetReplyDialog(
                         selectedUris.forEach { uri ->
                             val fName = getFileName(context, uri)
                             val isImg = isImageFile(fName, uri.toString())
-                            val isPdf = isPdfFile(fName)
+                            val isPdf = isPdfFile(fName, uri.toString())
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
                                 Icon(
                                     if (isImg) Icons.Default.Image else if (isPdf) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.InsertDriveFile,
@@ -645,7 +648,7 @@ fun BudgetReplyDialog(
                 onClick = {
                     val hasImageOrPdf = selectedUris.any {
                         val fName = getFileName(context, it)
-                        isImageFile(fName, it.toString()) || isPdfFile(fName)
+                        isImageFile(fName, it.toString()) || isPdfFile(fName, it.toString())
                     }
                     if (hasImageOrPdf) {
                         isUploading = true
@@ -989,7 +992,7 @@ fun BudgetVotingCard(
                         val isLeading = acceptVotesCount > 0 && acceptVotesCount == maxAcceptVotes && attachments.size > 1
                         val isThisChosen = isVotingClosed && (att.id == chosenAttachmentId) && !isEntireCardRejected
                         val isImg = isImageFile(att.fileName, att.filePath)
-                        val isPdf = isPdfFile(att.fileName)
+                        val isPdf = isPdfFile(att.fileName, att.filePath)
                         val isVid = isVideoFile(att.fileName, att.filePath)
                         val ext = att.fileName.substringAfterLast('.', "").uppercase()
 
@@ -1571,7 +1574,7 @@ fun ChatBubble(
                             attachments.forEach { attWithVotes ->
                                 val att = attWithVotes.attachment
                                 val isImg = isImageFile(att.fileName, att.filePath)
-                                val isPdf = isPdfFile(att.fileName)
+                                val isPdf = isPdfFile(att.fileName, att.filePath)
                                 val isVid = isVideoFile(att.fileName, att.filePath)
 
                                 Surface(
@@ -1975,7 +1978,7 @@ fun CloseVotingDialog(
                         if (selectedUri != null) {
                             val fName = getFileName(context, selectedUri!!)
                             val isImg = isImageFile(fName, selectedUri.toString())
-                            val isPdf = isPdfFile(fName)
+                            val isPdf = isPdfFile(fName, selectedUri.toString())
                             Spacer(Modifier.height(4.dp))
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -2034,7 +2037,7 @@ fun CloseVotingDialog(
                 onClick = {
                     if (selectedUri != null) {
                         val fName = getFileName(context, selectedUri!!)
-                        if (isImageFile(fName, selectedUri.toString()) || isPdfFile(fName)) {
+                        if (isImageFile(fName, selectedUri.toString()) || isPdfFile(fName, selectedUri.toString())) {
                             isUploading = true
                         }
                     }
@@ -2350,6 +2353,7 @@ fun PdfThumbnailImage(
     var firstPageBitmap by remember(filePath) { mutableStateOf<Bitmap?>(null) }
     var pageCount by remember(filePath) { mutableStateOf(0) }
     var isLoading by remember(filePath) { mutableStateOf(true) }
+    var pdfLoadError by remember(filePath) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(filePath) {
         if (firstPageBitmap == null) {
@@ -2365,6 +2369,7 @@ fun PdfThumbnailImage(
                             ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
                         } catch (e: Exception) {
                             e.printStackTrace()
+                            pdfLoadError = e.localizedMessage
                             null
                         }
                     }
@@ -2379,7 +2384,10 @@ fun PdfThumbnailImage(
                             val tempFile = File(context.cacheDir, "pdf_thumb_${filePath.hashCode()}.pdf")
                             tempFile.writeBytes(bytes)
                             ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
-                        } else null
+                        } else {
+                            pdfLoadError = "Falha ao baixar bytes da URL (HTTP 403/404/Erro de Rede)"
+                            null
+                        }
                     }
                     filePath.startsWith("content://") -> {
                         context.contentResolver.openFileDescriptor(Uri.parse(filePath), "r")
@@ -2387,7 +2395,10 @@ fun PdfThumbnailImage(
                     else -> {
                         val cleanPath = sanitizeLocalPath(filePath)
                         val file = File(cleanPath)
-                        if (file.exists()) ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY) else null
+                        if (file.exists()) ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY) else {
+                            pdfLoadError = "Arquivo local não encontrado: $cleanPath"
+                            null
+                        }
                     }
                 }
 
@@ -2406,9 +2417,12 @@ fun PdfThumbnailImage(
                     }
                     pdfRenderer.close()
                     pfd.close()
+                } else if (pdfLoadError == null) {
+                    pdfLoadError = "Não foi possível abrir o descritor de arquivo PDF (PFD null)"
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                pdfLoadError = e.localizedMessage ?: e.javaClass.simpleName
             } finally {
                 isLoading = false
             }
@@ -2455,7 +2469,11 @@ fun PdfThumbnailImage(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFFFFF0F0)),
+                    .background(Color(0xFFFFF0F0))
+                    .clickable {
+                        val detail = pdfLoadError ?: "Erro desconhecido ao carregar PDF."
+                        AppErrorHandler.showError("Erro ao carregar PDF (${fileName.ifBlank { "Documento" }}):\nURL/Caminho: $filePath\nDetalhes: $detail")
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -2471,18 +2489,19 @@ fun PdfThumbnailImage(
                         )
                     } else {
                         Icon(
-                            Icons.Default.PictureAsPdf,
+                            Icons.Default.ErrorOutline,
                             contentDescription = null,
                             modifier = Modifier.size(28.dp),
-                            tint = Color(0xFFD32F2F)
+                            tint = Color(0xFFFF5252)
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            text = if (pageCount > 1) "PDF ($pageCount pág.)" else "PDF",
+                            text = "Erro PDF\nToque p/ ver erro",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFD32F2F),
-                            fontSize = 10.sp
+                            color = Color(0xFFFF5252),
+                            fontSize = 9.sp,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
@@ -2646,18 +2665,64 @@ fun FullScreenPdfDialog(
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Spacer(Modifier.height(20.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Button(
-                                onClick = { openFile(context, filePath, fileName) },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                onClick = {
+                                    scope.launch(Dispatchers.IO) {
+                                        val db = com.example.condsuites.data.db.AppDatabase.getDatabase(context)
+                                        val samuelUser = db.appDao().getUserByUsername("samuel")
+                                        val rawPhone = samuelUser?.phone?.takeIf { it.isNotBlank() } ?: ""
+                                        val cleanPhone = rawPhone.replace(Regex("[^0-9]"), "")
+                                        val finalPhone = if (cleanPhone.length in 10..11 && !cleanPhone.startsWith("55")) "55$cleanPhone" else cleanPhone
+
+                                        val err = errorMessage ?: "Não foi possível carregar o arquivo PDF."
+                                        val formattedMsg = "Olá Samuel, ocorreu um erro ao carregar/visualizar o PDF '$fileName' no CondSuites:\n\nCaminho/URL: $filePath\n\nErro: $err"
+                                        val url = if (finalPhone.isNotBlank()) {
+                                            "https://api.whatsapp.com/send?phone=$finalPhone&text=${Uri.encode(formattedMsg)}"
+                                        } else {
+                                            "https://api.whatsapp.com/send?text=${Uri.encode(formattedMsg)}"
+                                        }
+
+                                        withContext(Dispatchers.Main) {
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {
+                                                Toast.makeText(context, "Não foi possível abrir o WhatsApp.", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
                             ) {
-                                Text("Abrir em App Externo")
+                                Icon(
+                                    imageVector = Icons.Default.Send,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = Color.White
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("Enviar Erro p/ Samuel (WhatsApp)", color = Color.White, fontWeight = FontWeight.Bold)
                             }
-                            OutlinedButton(
-                                onClick = onDismiss,
-                                border = BorderStroke(1.dp, Color.White)
-                            ) {
-                                Text("Fechar", color = Color.White)
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Button(
+                                    onClick = { openFile(context, filePath, fileName) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                ) {
+                                    Text("Abrir em App Externo")
+                                }
+                                OutlinedButton(
+                                    onClick = onDismiss,
+                                    border = BorderStroke(1.dp, Color.White)
+                                ) {
+                                    Text("Fechar", color = Color.White)
+                                }
                             }
                         }
                     }

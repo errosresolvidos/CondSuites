@@ -178,7 +178,7 @@ fun CondSuitesApp(
     }
 
     val currentError = AppErrorHandler.currentError
-    if (currentError != null && (AppErrorHandler.isTargetUser(currentUser) || AppErrorHandler.isTargetUser(UserPreferences.getCurrentSessionUser(context)))) {
+    if (currentError != null) {
         ErrorPopupDialog(
             errorText = currentError,
             onDismiss = { AppErrorHandler.clearError() }

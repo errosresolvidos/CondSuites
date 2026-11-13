@@ -210,7 +210,7 @@ fun LoginScreen(dao: AppDao, onLoginSuccess: (UserEntity) -> Unit) {
                 }
 
                 Text(
-                    text = "v2.2.1",
+                    text = "v2.3.1",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )

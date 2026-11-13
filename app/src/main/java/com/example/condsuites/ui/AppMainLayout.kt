@@ -1,6 +1,9 @@
 package com.example.condsuites.ui
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -107,6 +110,9 @@ fun AppMainLayout(
     val agreements by dao.getActiveAgreements().collectAsState(initial = emptyList())
     val delinquents by dao.getDelinquents().collectAsState(initial = emptyList())
     val lawsuits by dao.getLawsuitsWithProgress().collectAsState(initial = emptyList())
+    val users by dao.getAllUsersFlow().collectAsState(initial = emptyList())
+
+    var showPhoneBookDialog by remember { mutableStateOf(false) }
 
     val totalUnreadMessagesCount = remember(occurrencesWithMessages, currentUser) {
         occurrencesWithMessages.sumOf { item ->
@@ -343,6 +349,9 @@ fun AppMainLayout(
                                 )
                             }
                         }
+                        IconButton(onClick = { showPhoneBookDialog = true }) {
+                            Icon(Icons.Default.Phone, contentDescription = "Contatos")
+                        }
                         IconButton(onClick = { currentScreen = Screen.Occurrences }) {
                             BadgedBox(
                                 badge = {
@@ -417,5 +426,84 @@ fun AppMainLayout(
                 }
             }
         }
+    }
+
+    if (showPhoneBookDialog) {
+        val context = LocalContext.current
+        AlertDialog(
+            onDismissRequest = { showPhoneBookDialog = false },
+            title = { Text("Contatos") },
+            text = {
+                val excludedUsernames = listOf("usuario", "usuario2", "usuario 3")
+                val filteredUsers = users.filter { 
+                    it.username != currentUser.username && 
+                    it.username !in excludedUsernames &&
+                    it.role in listOf("Conselheiro Fiscal", "Zelador", "Síndico") 
+                }
+                if (filteredUsers.isEmpty()) {
+                    Text("Nenhum contato disponível.")
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val grouped = filteredUsers.groupBy { it.role }
+                        listOf("Síndico", "Conselheiro Fiscal", "Zelador").forEach { role ->
+                            val roleUsers = grouped[role] ?: emptyList()
+                            if (roleUsers.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        text = if (role == "Conselheiro Fiscal") "Conselho Fiscal" else role,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                items(roleUsers) { user ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(user.name.ifBlank { user.username }, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodyLarge)
+                                            if (user.phone.isNotBlank()) {
+                                                Text(user.phone, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+                                        Spacer(Modifier.width(8.dp))
+                                        IconButton(
+                                            onClick = {
+                                                val phone = user.phone.replace(Regex("[^0-9]"), "")
+                                                if (phone.isNotBlank()) {
+                                                    val finalPhone = if (phone.startsWith("55")) phone else "55$phone"
+                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$finalPhone"))
+                                                    context.startActivity(intent)
+                                                }
+                                            }
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Chat, 
+                                                contentDescription = "WhatsApp", 
+                                                tint = Color(0xFF25D366),
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPhoneBookDialog = false }) {
+                    Text("Fechar")
+                }
+            }
+        )
     }
 }
